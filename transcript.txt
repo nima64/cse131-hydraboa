@@ -1,0 +1,107 @@
+[ntamang@ieng6-201]:adder:229$ cat test/add.snek; cargo run -- test/add.snek
+(negate (add1 (negate (negate 10))))
+warning: function `compile_expr` is never used
+  --> src/main.rs:52:4
+   |
+52 | fn compile_expr(e: &Expr) -> String {
+   |    ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `adder` (bin "adder") generated 1 warning
+    Finished dev [unoptimized + debuginfo] target(s) in 0.23s
+     Running `target/debug/adder test/add.snek`
+updated: -11
+
+[ntamang@ieng6-201]:adder:230$ cat test/add.snek; cargo run -- test/add.snek
+(negate (negate (negate (negate 10))))
+warning: function `compile_expr` is never used
+  --> src/main.rs:52:4
+   |
+52 | fn compile_expr(e: &Expr) -> String {
+   |    ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `adder` (bin "adder") generated 1 warning
+    Finished dev [unoptimized + debuginfo] target(s) in 0.15s
+     Running `target/debug/adder test/add.snek`
+updated: 10
+
+ntamang@ieng6-201
+[ntamang@ieng6-201]:adder:231$ cat test/add.snek; cargo run -- test/add.snek
+(sub1 (add1 (sub1 (add1 10))))
+warning: function `compile_expr` is never used
+  --> src/main.rs:52:4
+   |
+52 | fn compile_expr(e: &Expr) -> String {
+   |    ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `adder` (bin "adder") generated 1 warning
+    Finished dev [unoptimized + debuginfo] target(s) in 0.14s
+     Running `target/debug/adder test/add.snek`
+updated: 10
+
+[ntamang@ieng6-201]:adder:232$ cat test/add.snek; cargo run -- test/add.snek
+(sub1 (add1 (sub1 (add1 (negate 10)))))
+warning: function `compile_expr` is never used
+  --> src/main.rs:52:4
+   |
+52 | fn compile_expr(e: &Expr) -> String {
+   |    ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `adder` (bin "adder") generated 1 warning
+    Finished dev [unoptimized + debuginfo] target(s) in 0.22s
+     Running `target/debug/adder test/add.snek`
+updated: -10
+
+[ntamang@ieng6-201]:adder:233$ cat test/add.snek; cargo run -- test/add.snek
+(sub1 (add1 (sub1 ((negate 10)))))
+warning: function `compile_expr` is never used
+  --> src/main.rs:52:4
+   |
+52 | fn compile_expr(e: &Expr) -> String {
+   |    ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `adder` (bin "adder") generated 1 warning
+    Finished dev [unoptimized + debuginfo] target(s) in 0.14s
+     Running `target/debug/adder test/add.snek`
+thread 'main' panicked at src/main.rs:25:22:
+parse error!
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+[ntamang@ieng6-201]:adder:234$ cat test/add.snek; cargo run -- test/add.snek
+(sub1 (add1 (sub1 (negate 10))))
+warning: function `compile_expr` is never used
+  --> src/main.rs:52:4
+   |
+52 | fn compile_expr(e: &Expr) -> String {
+   |    ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `adder` (bin "adder") generated 1 warning
+    Finished dev [unoptimized + debuginfo] target(s) in 0.14s
+     Running `target/debug/adder test/add.snek`
+updated: -11
+
+[ntamang@ieng6-201]:adder:235$ cat test/add.snek; cargo run -- test/add.snek
+(negate (negate (negate 1)))
+warning: function `compile_expr` is never used
+  --> src/main.rs:52:4
+   |
+52 | fn compile_expr(e: &Expr) -> String {
+   |    ^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `adder` (bin "adder") generated 1 warning
+    Finished dev [unoptimized + debuginfo] target(s) in 0.19s
+     Running `target/debug/adder test/add.snek`
+updated: -1
