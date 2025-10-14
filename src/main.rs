@@ -17,7 +17,7 @@ enum Reg {
     Rbp,
 }
 #[derive(Debug, Clone)]
-enum RegOrImm {
+enum Val {
     Reg(Reg),
     Imm(i32),
 }
@@ -28,7 +28,9 @@ enum Instr {
     Mov(Reg, i32), // mov register, immediate
     Add(Reg, i32), // add register, immediate
     Sub(Reg, i32), // sub register, immediate
+    iMul(Reg, Reg),
     AddReg(Reg, Reg),
+    MinusReg(Reg, Reg),
     MovReg(Reg, Reg),
     MovToStack(Reg, i32), // Register, stackdepth => mov [rsp - offset], register
     MovFromStack(Reg, i32), // mov register, [rsp - offset]
@@ -50,7 +52,8 @@ enum Op2 {
 enum Expr {
     Num(i32),
     // Add1(Box<Expr>),
-    Let(String, Box<Expr>, Box<Expr>),
+    Let(Vec<(String, Expr)>, Box<Expr>),
+
     // Plus(Box<Expr>, Box<Expr>),
     Id(String),
     UnOp(Op1, Box<Expr>),             // unary operation
@@ -75,16 +78,32 @@ fn parse_expr(s: &Sexp) -> Expr {
                     Box::new(parse_expr(e1)),
                     Box::new(parse_expr(e2)),
                 ),
-                [Sexp::Atom(S(op)), Sexp::List(binding), body] if op == "let" => match &binding[..]
-                {
-                    [Sexp::Atom(S(var)), val] => Expr::Let(
-                        var.to_string(),
-                        Box::new(parse_expr(val)),
-                        Box::new(parse_expr(body)),
-                    ),
-                    _ => panic!("parse error in let binding"),
-                },
+                [Sexp::Atom(S(op)), e1, e2] if op == "-" => Expr::BinOp(
+                    Op2::Minus,
+                    Box::new(parse_expr(e1)),
+                    Box::new(parse_expr(e2)),
+                ),
+                [Sexp::Atom(S(op)), e1, e2] if op == "*" => Expr::BinOp(
+                    Op2::Times,
+                    Box::new(parse_expr(e1)),
+                    Box::new(parse_expr(e2)),
+                ),
 
+                [Sexp::Atom(S(op)), Sexp::List(bindings), body] if op == "let" => {
+                    // Map each binding to (var_name, parsed_expr) tuple
+                    let parsed_bindings: Vec<(String, Expr)> = bindings
+                        .iter()
+                        .map(|binding| match binding {
+                            Sexp::List(pair) => match &pair[..] {
+                                [Sexp::Atom(S(var)), val] => (var.to_string(), parse_expr(val)),
+                                _ => panic!("Invalid binding: expected (variable value)"),
+                            },
+                            _ => panic!("Invalid binding: expected a list"),
+                        })
+                        .collect();
+
+                    Expr::Let(parsed_bindings, Box::new(parse_expr(body)))
+                }
                 _ => panic!("parse error!"),
             }
         }
@@ -116,6 +135,12 @@ fn instr_to_string(instr: &Instr) -> String {
         Instr::AddReg(reg1, reg2) => {
             format!("add {}, {}", reg_to_string(reg1), reg_to_string(reg2))
         }
+        Instr::MinusReg(reg1, reg2) => {
+            format!("sub {}, {}", reg_to_string(reg1), reg_to_string(reg2))
+        }
+        Instr::iMul(reg1, reg2) => {
+            format!("imul {}, {}", reg_to_string(reg1), reg_to_string(reg2))
+        }
         Instr::MovToStack(reg, offset) => format!("mov [rsp - {}], {}", offset, reg_to_string(reg)),
         Instr::MovFromStack(reg, offset) => {
             format!("mov {}, [rsp - {}]", reg_to_string(reg), offset)
@@ -134,7 +159,7 @@ fn compile_expr_with_env(e: &Expr, stack_depth: i32, env: &HashMap<String, i32>)
             let mut instrs = compile_expr_with_env(subexpr, stack_depth, env);
             if matches!(op, Op1::Add1) {
                 instrs.push(Instr::Add(Reg::Rax, 1));
-            } else if matches!(op, Op1::Add1) {
+            } else if matches!(op, Op1::Sub1) {
                 instrs.push(Instr::Add(Reg::Rax, -1));
             } else {
                 panic!("Invalid op {:?}!", op);
@@ -143,25 +168,42 @@ fn compile_expr_with_env(e: &Expr, stack_depth: i32, env: &HashMap<String, i32>)
         }
         Expr::BinOp(op, e1, e2) => {
             let mut instrs = compile_expr_with_env(e1, stack_depth, env);
-            instrs.push(Instr::MovToStack(Reg::Rsp, stack_depth));
+            instrs.push(Instr::MovToStack(Reg::Rax, stack_depth));
             instrs.extend(compile_expr_with_env(e2, stack_depth + 8, env));
-            if (matches!(op, Op2::Plus)) {
+            if matches!(op, Op2::Plus) {
                 instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
                 instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
+            } else if matches!(op, Op2::Minus) {
+                instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
+                instrs.push(Instr::MinusReg(Reg::Rcx, Reg::Rax)); // Rcx - Rax = 10 - 2
+                instrs.push(Instr::MovReg(Reg::Rax, Reg::Rcx)); // Move result back to Rax
+            } else if matches!(op, Op2::Times) {
+                instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
+                instrs.push(Instr::iMul(Reg::Rax, Reg::Rcx));
             } else {
                 panic!("Invalid op {:?}!", op);
             }
             instrs
         }
-        Expr::Let(var, val_expr, body_expr) => {
-            let mut instrs = compile_expr_with_env(val_expr, stack_depth, env); // Compile value expression
-            instrs.push(Instr::MovToStack(Reg::Rax, stack_depth)); // Store value on stack
 
-            // Create new environment with this variable mapped to its stack location
+        Expr::Let(bindings, body) => {
+            let mut instrs = Vec::new();
             let mut new_env = env.clone();
-            new_env.insert(var.clone(), stack_depth);
+            let mut current_depth = stack_depth;
 
-            instrs.extend(compile_expr_with_env(body_expr, stack_depth + 8, &new_env)); // Compile body with extended env
+            // Process bindings ONE BY ONE
+            for (var, val_expr) in bindings {
+                // Compile value with environment that includes PREVIOUS bindings
+                instrs.extend(compile_expr_with_env(val_expr, current_depth, &new_env));
+                instrs.push(Instr::MovToStack(Reg::Rax, current_depth));
+
+                // Add to environment BEFORE next binding
+                new_env.insert(var.clone(), current_depth);
+                current_depth += 8;
+            }
+
+            // Compile body with ALL bindings in scope
+            instrs.extend(compile_expr_with_env(body, current_depth, &new_env));
             instrs
         }
     }
