@@ -49,6 +49,7 @@ enum Op2 {
     Times,
 }
 
+#[derive(Debug )]
 enum Expr {
     Num(i32),
     // Add1(Box<Expr>),
@@ -232,6 +233,7 @@ fn main() -> std::io::Result<()> {
     in_file.read_to_string(&mut in_contents)?;
 
     let expr = parse_expr(&parse(&in_contents).unwrap());
+    println!("resulting expression: {:?}", expr);
     let instrs = compile_expr(&expr);
     let result = instrs_to_string(&instrs);
     let asm_program = format!(
