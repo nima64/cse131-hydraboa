@@ -279,8 +279,12 @@ fn compile_expr_with_env_repl(
             let mut instrs = Vec::new();
             let mut new_env = env.clone();
             let mut current_depth = stack_depth;
-
+            let mut duplicateBinding = HashMap::new();
             for (var, val_expr) in bindings {
+                if duplicateBinding.contains_key(var) {
+                    panic!("Duplicate binding");
+                }
+                duplicateBinding.insert(var, 1);
                 instrs.extend(compile_expr_with_env_repl(
                     val_expr,
                     current_depth,
