@@ -25,7 +25,7 @@ pub enum Val {
 #[derive(Debug, Clone)]
 pub enum Instr {
     // IMov(Reg, RegOrImm),
-    Mov(Reg, i32), // mov register, immediate
+    Mov(Reg, i64), // mov register, immediate
     Add(Reg, i32), // add register, immediate
     Sub(Reg, i32), // sub register, immediate
     iMul(Reg, Reg),
@@ -48,7 +48,27 @@ pub enum Op2 {
     Plus,
     Minus,
     Times,
+    Less,
+    Greater,
+    LessEqual,
+    GreaterEqual,
+    Equal,
 }
+
+pub const TRUE_TAGGED:i64 = 3;
+pub const FLASE_TAGGED:i64 = 1;
+pub const BOOL_TAG: i64 = 1;
+pub const NUM_TAG: i64 = 0;
+
+
+
+pub fn tag_number(n:i64) -> i64{
+    return n << 1;
+}
+pub fn untag_number(n:i64) -> i64{
+    return n >> 1;
+}
+
 
 #[derive(Debug)]
 pub enum Expr {
@@ -60,5 +80,4 @@ pub enum Expr {
     UnOp(Op1, Box<Expr>),
     Define(String, Box<Expr>),
     BinOp(Op2, Box<Expr>, Box<Expr>),
-    Empty,
 }

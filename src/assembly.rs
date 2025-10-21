@@ -54,16 +54,12 @@ pub fn instr_to_asm(i: &Instr, ops: &mut dynasmrt::x64::Assembler) {
     match i {
         Instr::Mov(reg, val) => {
             let r = reg.to_num();
-            dynasm!(ops; .arch x64; mov Rq(r), *val);
-        },
-        // Instr::Mov(reg, val) => {
-        //     let r = reg.to_num();
-        //     dynasm!(
-        //         ops; .arch x64; 
-        //         mov r11, Rq(r);
-        //         movabs rax, QWORD *val as i64
-        // );
-        // }
+            dynasm!(
+                ops; .arch x64; 
+                mov rax, QWORD *val as i64;
+                mov Rq(r), rax
+            );
+        }
         Instr::Add(reg, val) => {
             let r = reg.to_num();
             dynasm!(ops; .arch x64; add Rq(r), *val);

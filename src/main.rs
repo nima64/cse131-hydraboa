@@ -16,10 +16,15 @@ use assembly::*;
 
 fn parse_expr(s: &Sexp) -> Expr {
     match s {
-        Sexp::Atom(I(n)) => Expr::Number(*n),
-                // Sexp::Atom(I(n)) => Expr::Num(i32::try_from(*n).unwrap()),
-
-        Sexp::Atom(S(name)) => Expr::Id(name.to_string()),
+        Sexp::Atom(I(n)) => Expr::Number(tag_number(*n)),
+        Sexp::Atom(S(name)) => {
+            if(name == "true"){
+                return Expr::Boolean(true);
+            }else if (name == "false"){
+                return Expr::Boolean(false);
+            }
+           Expr::Id(name.to_string())
+        },
         Sexp::List(vec) => {
             /* */
             match &vec[..] {
@@ -71,6 +76,7 @@ fn parse_expr(s: &Sexp) -> Expr {
     }
 }
 
+
 fn compile_expr_with_env_repl(
     e: &Expr,
     stack_depth: i32,
@@ -78,7 +84,7 @@ fn compile_expr_with_env_repl(
     replEnv: &mut HashMap<String, Box<i64>>,
 ) -> Vec<Instr> {
     match e {
-        Expr::Number(n) => vec![Instr::Mov(Reg::Rax, i32::try_from(*n).unwrap())],
+        Expr::Number(n) => vec![Instr::Mov(Reg::Rax, *n)],
         Expr::Id(name) => {
                         // Check env (stack) first for local variables
                         if let Some(offset) = env.get(name) {
@@ -86,7 +92,7 @@ fn compile_expr_with_env_repl(
                         } else if let Some(boxed_value) = replEnv.get(name) {
                             // If not in env, check replEnv for defined variables
                             println!("value held in {}: {}", name, **boxed_value);
-                            vec![Instr::Mov(Reg::Rax, i32::try_from(**boxed_value).unwrap())]
+                            vec![Instr::Mov(Reg::Rax, **boxed_value)]
                         } else {
                             panic!("Unbound variable identifier {}", name)
                         }
@@ -169,9 +175,13 @@ fn compile_expr_with_env_repl(
                 }
 
                 vec![]
+            },
+        Expr::Boolean(b) => {
+            if *b == true {
+                return vec![Instr::Mov(Reg::Rax, TRUE_TAGGED)];
             }
-        Expr::Empty => vec![],
-    Expr::Boolean(_) => todo!(),
+            vec![Instr::Mov(Reg::Rax, FLASE_TAGGED)]
+        }
     }
 }
 
@@ -200,6 +210,20 @@ fn jitCode(instrs: &Vec<Instr>) -> i64 {
     let jitted_fn: extern "C" fn() -> i64 = unsafe { mem::transmute(buf.ptr(start)) };
     let result = jitted_fn();
     result
+}
+
+fn format_result(res: i64) -> String{
+    let tag: i64 = res & 1;
+    if(tag == BOOL_TAG){
+        if (res == TRUE_TAGGED){
+            return "true".to_string();
+        }else{
+            return "false".to_string();
+        }
+    }
+
+    return untag_number(res).to_string();
+        
 }
 
 fn main() -> std::io::Result<()> {
@@ -269,7 +293,7 @@ fn main() -> std::io::Result<()> {
             // Step 4: Execute and print result
             if !instrs.is_empty() {
                 let result = jitCode(&instrs);
-                println!("result: {}", result);
+                println!("{}", format_result(result));
             }
         }
     } else if use_aot {
