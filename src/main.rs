@@ -49,6 +49,31 @@ fn parse_expr(s: &Sexp) -> Expr {
                     Box::new(parse_expr(e1)),
                     Box::new(parse_expr(e2)),
                 ),
+                [Sexp::Atom(S(op)), e1, e2] if op == "<" => Expr::BinOp(
+                    Op2::Less,
+                    Box::new(parse_expr(e1)),
+                    Box::new(parse_expr(e2)),
+                ),
+                [Sexp::Atom(S(op)), e1, e2] if op == ">" => Expr::BinOp(
+                    Op2::Greater,
+                    Box::new(parse_expr(e1)),
+                    Box::new(parse_expr(e2)),
+                ),
+                [Sexp::Atom(S(op)), e1, e2] if op == "<=" => Expr::BinOp(
+                    Op2::LessEqual,
+                    Box::new(parse_expr(e1)),
+                    Box::new(parse_expr(e2)),
+                ),
+                [Sexp::Atom(S(op)), e1, e2] if op == ">=" => Expr::BinOp(
+                    Op2::GreaterEqual,
+                    Box::new(parse_expr(e1)),
+                    Box::new(parse_expr(e2)),
+                ),
+                [Sexp::Atom(S(op)), e1, e2] if op == "=" => Expr::BinOp(
+                    Op2::Equal,
+                    Box::new(parse_expr(e1)),
+                    Box::new(parse_expr(e2)),
+                ),
 
                 [Sexp::Atom(S(op)), Sexp::List(bindings), body] if op == "let" => {
                     // Map each binding to (var_name, parsed_expr) tuple
@@ -117,7 +142,23 @@ fn compile_expr_with_env_repl(
                     env,
                     replEnv,
                 ));
-                if matches!(op, Op2::Plus) {
+
+                if matches!(op, Op2::Less | Op2::Greater) {
+                    // Check e1 (on stack) is a number
+                    instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
+                    // Both are numbers, do comparison
+                    instrs.push(Instr::Cmp(Reg::Rcx, Reg::Rax)); // Compare e1 with e2
+
+                    if matches!(op, Op2::Less) {
+                        instrs.push(Instr::SetL(Reg::Rax)); // Set AL if e1 < e2
+                    } else {
+                        instrs.push(Instr::SetG(Reg::Rax)); // Set AL if e1 > e2
+                    }
+
+                    // Convert 0/1 result to tagged boolean (false=1, true=3)
+                    instrs.push(Instr::Shl(Reg::Rax, 1)); // Shift left: 0->0, 1->2
+                    instrs.push(Instr::Or(Reg::Rax, 1));  // Or with 1: 0->1, 2->3
+                } else if matches!(op, Op2::Plus) {
                     instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
                     instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
                 } else if matches!(op, Op2::Minus) {

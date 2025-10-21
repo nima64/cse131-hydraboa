@@ -35,6 +35,13 @@ pub enum Instr {
     MovToStack(Reg, i32), // Register, stackdepth => mov [rsp - offset], register
     MovFromStack(Reg, i32), // mov register, [rsp - offset]
     MovDeref(Reg, Reg),   // mov dest_reg, [src_reg] - dereference src_reg and put in dest_reg
+    Cmp(Reg, Reg),        // cmp reg1, reg2
+    SetL(Reg),            // setl reg - set if less
+    SetG(Reg),            // setg reg - set if greater
+    Shl(Reg, i32),        // shl reg, immediate - shift left
+    Or(Reg, i64),         // or reg, immediate - for setting bits
+    Test(Reg, i64),       // test reg, immediate - for checking bits
+    Jne(String),          // jne label - jump if not equal
 }
 
 #[derive(Debug)]
@@ -67,6 +74,16 @@ pub fn tag_number(n:i64) -> i64{
 }
 pub fn untag_number(n:i64) -> i64{
     return n >> 1;
+}
+
+// Helper to check if a value is a number (tag bit is 0)
+pub fn is_number_tag(val: i64) -> bool {
+    (val & 1) == 0
+}
+
+// Helper to check if a value is a boolean (tag bit is 1)
+pub fn is_bool_tag(val: i64) -> bool {
+    (val & 1) == 1
 }
 
 

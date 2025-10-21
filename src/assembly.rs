@@ -25,6 +25,27 @@ pub fn instr_to_string(instr: &Instr) -> String {
         Instr::MovDeref(dest, src) => {
             format!("mov {}, [{}]", reg_to_string(dest), reg_to_string(src))
         }
+        Instr::Cmp(reg1, reg2) => {
+            format!("cmp {}, {}", reg_to_string(reg1), reg_to_string(reg2))
+        }
+        Instr::SetL(reg) => {
+            format!("setl {}", reg_to_byte_string(reg))
+        }
+        Instr::SetG(reg) => {
+            format!("setg {}", reg_to_byte_string(reg))
+        }
+        Instr::Shl(reg, val) => {
+            format!("shl {}, {}", reg_to_string(reg), val)
+        }
+        Instr::Or(reg, val) => {
+            format!("or {}, {}", reg_to_string(reg), val)
+        }
+        Instr::Test(reg, val) => {
+            format!("test {}, {}", reg_to_string(reg), val)
+        }
+        Instr::Jne(label) => {
+            format!("jne {}", label)
+        }
     }
 }
 
@@ -47,6 +68,16 @@ fn reg_to_string(reg: &Reg) -> &str {
         Reg::Rdi => "rdi",
         Reg::Rsp => "rsp",
         Reg::Rbp => "rbp",
+    }
+}
+
+fn reg_to_byte_string(reg: &Reg) -> &str {
+    match reg {
+        Reg::Rax => "al",
+        Reg::Rbx => "bl",
+        Reg::Rcx => "cl",
+        Reg::Rdx => "dl",
+        _ => panic!("No byte register for {:?}", reg),
     }
 }
 
@@ -100,6 +131,36 @@ pub fn instr_to_asm(i: &Instr, ops: &mut dynasmrt::x64::Assembler) {
             let d = dest.to_num();
             let s = src.to_num();
             dynasm!(ops; .arch x64; mov Rq(d), [Rq(s)]);
+        }
+        Instr::Cmp(reg1, reg2) => {
+            let r1 = reg1.to_num();
+            let r2 = reg2.to_num();
+            dynasm!(ops; .arch x64; cmp Rq(r1), Rq(r2));
+        }
+        Instr::SetL(reg) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; setl Rb(r));
+            dynasm!(ops; .arch x64; movzx Rq(r), Rb(r));
+        }
+        Instr::SetG(reg) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; setg Rb(r));
+            dynasm!(ops; .arch x64; movzx Rq(r), Rb(r));
+        }
+        Instr::Shl(reg, val) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; shl Rq(r), *val as i8);
+        }
+        Instr::Or(reg, val) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; or Rq(r), *val as i32);
+        }
+        Instr::Test(reg, val) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; test Rq(r), *val as i32);
+        }
+        Instr::Jne(_label) => {
+            panic!("invalid argument");
         }
     }
 }
