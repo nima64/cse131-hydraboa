@@ -1,10 +1,32 @@
-#prevent deleting .s file
-.PRECIOUS: test/%.s
+# Do not change this starting part, used by mod.rs
+UNAME := $(shell uname)
 
-test/%.s: test/%.snek src/main.rs
-	cargo run -- $< test/$*.s
+ifeq ($(UNAME), Linux)
+ARCH := elf64
+RUST_TARGET := x86_64-unknown-linux-gnu
+endif
+ifeq ($(UNAME), Darwin)
+ARCH := macho64
+RUST_TARGET := x86_64-apple-darwin
+endif
 
-test/%.run: test/%.s runtime/start.rs
-	nasm -f elf64 test/$*.s -o runtime/our_code.o
-	ar rcs runtime/libour_code.a runtime/our_code.o
-	rustc -L runtime/ runtime/start.rs -o test/$*.run
+tests/%.run: tests/%.s runtime/start.rs
+	nasm -f $(ARCH) tests/$*.s -o tests/$*.o
+	ar rcs tests/lib$*.a tests/$*.o
+	rustc --target $(RUST_TARGET) -L tests/ -lour_code:$* runtime/start.rs -o tests/$*.run
+
+
+# Change below to whatever might be helpful! 
+MODE ?= -c
+
+tests/%.s: tests/%.snek src/main.rs
+	cargo run --target $(RUST_TARGET) -- $(MODE) $< tests/$*.s
+
+clean:
+	cargo clean
+	rm -f tests/*.a tests/*.s tests/*.run tests/*.o
+
+.PHONY: test
+test:
+	cargo build --target $(RUST_TARGET)
+	cargo test -- --test-threads=1
