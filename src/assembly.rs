@@ -46,6 +46,18 @@ pub fn instr_to_string(instr: &Instr) -> String {
         Instr::Jne(label) => {
             format!("jne {}", label)
         }
+        Instr::CmpImm(reg, val) => {
+            format!("cmp {}, {}", reg_to_string(reg), val)
+        }
+        Instr::Je(label) => {
+            format!("je {}", label)
+        }
+        Instr::Jmp(label) => {
+            format!("jmp {}", label)
+        }
+        Instr::Label(label) => {
+            format!("{}:", label)
+        }
     }
 }
 
@@ -160,7 +172,20 @@ pub fn instr_to_asm(i: &Instr, ops: &mut dynasmrt::x64::Assembler) {
             dynasm!(ops; .arch x64; test Rq(r), *val as i32);
         }
         Instr::Jne(_label) => {
-            panic!("invalid argument");
+            panic!("JIT compilation with labels requires using jit_code_input with label support");
+        }
+        Instr::CmpImm(reg, val) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; cmp Rq(r), *val as i32);
+        }
+        Instr::Je(_label) => {
+            panic!("JIT compilation with labels requires using jit_code_input with label support");
+        }
+        Instr::Jmp(_label) => {
+            panic!("JIT compilation with labels requires using jit_code_input with label support");
+        }
+        Instr::Label(_label) => {
+            // Labels are no-ops in JIT without label support
         }
     }
 }

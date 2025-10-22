@@ -14,6 +14,13 @@ mod assembly;
 use types::*;
 use assembly::*;
 
+#[derive(Clone, Copy)]
+struct CompileCtx {
+    loop_depth: i32,
+    label_counter: i32,
+}
+
+
 fn parse_expr(s: &Sexp) -> Expr {
     match s {
         Sexp::Atom(I(n)) => Expr::Number(tag_number(*n)),
@@ -76,6 +83,13 @@ fn parse_expr(s: &Sexp) -> Expr {
                     Box::new(parse_expr(e1)),
                     Box::new(parse_expr(e2)),
                 ),
+                [Sexp::Atom(S(op)), exprs @ ..] if op == "block" => {
+                    if exprs.is_empty() {
+                        panic!("Invalid: block needs at least one expression");
+                    }
+                    Expr::Block(exprs.iter().map(parse_expr).collect())
+                }
+
 
                 [Sexp::Atom(S(op)), Sexp::List(bindings), body] if op == "let" => {
                     // Map each binding to (var_name, parsed_expr) tuple
@@ -96,6 +110,14 @@ fn parse_expr(s: &Sexp) -> Expr {
                     Expr::Define(name.to_string(), Box::new(parse_expr(e)))
                 }
 
+                [Sexp::Atom(S(op)), cond, then_expr, else_expr] if op == "if" => {
+                    Expr::If(
+                        Box::new(parse_expr(cond)),
+                        Box::new(parse_expr(then_expr)),
+                        Box::new(parse_expr(else_expr))
+                    )
+                }
+
                 _ => panic!("parse error!"),
             }
         }
@@ -109,6 +131,7 @@ fn compile_expr_with_env_repl(
     stack_depth: i32,
     env: &HashMap<String, i32>,
     replEnv: &mut HashMap<String, Box<i64>>,
+    ctx: CompileCtx  // Pass by value (copied)
 ) -> Vec<Instr> {
     match e {
         Expr::Number(n) => vec![Instr::Mov(Reg::Rax, *n)],
@@ -125,7 +148,7 @@ fn compile_expr_with_env_repl(
                         }
             }
         Expr::UnOp(op, subexpr) => {
-                let mut instrs = compile_expr_with_env_repl(subexpr, stack_depth, env, replEnv);
+                let mut instrs = compile_expr_with_env_repl(subexpr, stack_depth, env, replEnv, ctx);
                 if matches!(op, Op1::Add1) {
                     instrs.push(Instr::Add(Reg::Rax, 1));
                 } else if matches!(op, Op1::Sub1) {
@@ -136,13 +159,14 @@ fn compile_expr_with_env_repl(
                 instrs
             }
         Expr::BinOp(op, e1, e2) => {
-                let mut instrs = compile_expr_with_env_repl(e1, stack_depth, env, replEnv);
+                let mut instrs = compile_expr_with_env_repl(e1, stack_depth, env, replEnv, ctx);
                 instrs.push(Instr::MovToStack(Reg::Rax, stack_depth));
                 instrs.extend(compile_expr_with_env_repl(
                     e2,
                     stack_depth + 8,
                     env,
                     replEnv,
+                    ctx,
                 ));
 
                 if matches!(op, Op2::Less | Op2::Greater) {
@@ -190,6 +214,7 @@ fn compile_expr_with_env_repl(
                         current_depth,
                         &new_env,
                         replEnv,
+                        ctx,
                     ));
                     instrs.push(Instr::MovToStack(Reg::Rax, current_depth));
 
@@ -202,11 +227,12 @@ fn compile_expr_with_env_repl(
                     current_depth,
                     &new_env,
                     replEnv,
+                    ctx,
                 ));
                 instrs
             }
         Expr::Define(name, e) => {
-                let instrs = compile_expr_with_env_repl(e, stack_depth, env, replEnv);
+                let instrs = compile_expr_with_env_repl(e, stack_depth, env, replEnv, ctx);
                 let val = jit_code(&instrs);
 
                 let boxed_val = Box::new(val);
@@ -224,7 +250,52 @@ fn compile_expr_with_env_repl(
                 return vec![Instr::Mov(Reg::Rax, TRUE_TAGGED)];
             }
             vec![Instr::Mov(Reg::Rax, FLASE_TAGGED)]
-        }
+        },
+        Expr::Block(exprs) => {
+            let mut instrs:Vec<Instr> = vec![];
+
+            for expr in exprs {
+                instrs.extend(compile_expr_with_env_repl(expr, stack_depth, env, replEnv, ctx));
+            }
+            instrs
+        },
+        Expr::If(cond, then_expr, else_expr) => {
+            let mut instrs = vec![];
+
+            // Generate unique labels using the label counter
+            let else_label = format!("else_{}", ctx.label_counter);
+            let end_label = format!("end_if_{}", ctx.label_counter);
+
+            // Update context with incremented label counter for nested ifs
+            let mut new_ctx = ctx;
+            new_ctx.label_counter += 1;
+
+            // 1. Compile and evaluate the condition (result in RAX)
+            instrs.extend(compile_expr_with_env_repl(cond, stack_depth, env, replEnv, new_ctx));
+
+            // 2. Compare RAX with false (tagged as 1)
+            instrs.push(Instr::CmpImm(Reg::Rax, FLASE_TAGGED));
+
+            // 3. Jump to else branch if condition equals false
+            instrs.push(Instr::Je(else_label.clone()));
+
+            // 4. Compile then branch (executed if condition is NOT false)
+            instrs.extend(compile_expr_with_env_repl(then_expr, stack_depth, env, replEnv, new_ctx));
+
+            // 5. Jump to end (skip else branch)
+            instrs.push(Instr::Jmp(end_label.clone()));
+
+            // 6. Else branch label
+            instrs.push(Instr::Label(else_label));
+
+            // 7. Compile else branch
+            instrs.extend(compile_expr_with_env_repl(else_expr, stack_depth, env, replEnv, new_ctx));
+
+            // 8. End label
+            instrs.push(Instr::Label(end_label));
+
+            instrs
+        },
     }
 }
 
@@ -235,13 +306,15 @@ fn compile_expr(e: &Expr) -> Vec<Instr> {
     let mut prepend_instrs = vec![];
     prepend_instrs.push(Instr::MovToStack(Reg::Rdi, stack_depth));
     env.insert("input".to_string(), stack_depth);
-    let instrs = compile_expr_with_env_repl(e, stack_depth+8, &env, &mut HashMap::new());
+    let ctx = CompileCtx { loop_depth: 0, label_counter: 0 };
+    let instrs = compile_expr_with_env_repl(e, stack_depth+8, &env, &mut HashMap::new(), ctx);
     prepend_instrs.extend(instrs);
     prepend_instrs
 }
 
 fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<Instr> {
-    compile_expr_with_env_repl(e, 16, &HashMap::new(), replEnv)
+    let ctx = CompileCtx { loop_depth: 0, label_counter: 0 };
+    compile_expr_with_env_repl(e, 16, &HashMap::new(), replEnv, ctx)
 }
 
 
@@ -262,6 +335,7 @@ fn jit_code_input(instrs: &Vec<Instr>, input: u64) -> i64 {
     let result = jitted_fn(input);
     result
 }
+
 fn jit_code(instrs: &Vec<Instr>) -> i64 {
     jit_code_input(instrs, FLASE_TAGGED as u64)
 }

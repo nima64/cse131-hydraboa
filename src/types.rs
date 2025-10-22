@@ -36,12 +36,16 @@ pub enum Instr {
     MovFromStack(Reg, i32), // mov register, [rsp - offset]
     MovDeref(Reg, Reg),   // mov dest_reg, [src_reg] - dereference src_reg and put in dest_reg
     Cmp(Reg, Reg),        // cmp reg1, reg2
+    CmpImm(Reg, i64),     // cmp reg, immediate
     SetL(Reg),            // setl reg - set if less
     SetG(Reg),            // setg reg - set if greater
     Shl(Reg, i32),        // shl reg, immediate - shift left
     Or(Reg, i64),         // or reg, immediate - for setting bits
     Test(Reg, i64),       // test reg, immediate - for checking bits
     Jne(String),          // jne label - jump if not equal
+    Je(String),           // je label - jump if equal
+    Jmp(String),          // jmp label - unconditional jump
+    Label(String),        // label: - assembly label
 }
 
 #[derive(Debug)]
@@ -99,5 +103,12 @@ pub enum Expr {
     Id(String),
     UnOp(Op1, Box<Expr>),
     Define(String, Box<Expr>),
+    Block(Vec<Expr>),
     BinOp(Op2, Box<Expr>, Box<Expr>),
+    If(Box<Expr>, Box<Expr>, Box<Expr>),
+}
+
+pub struct CompileCtx {
+    pub loop_depth: i32,
+    pub label_counter: i32,
 }
