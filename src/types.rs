@@ -68,6 +68,9 @@ pub const BOOL_TAG: i64 = 1;
 pub const NUM_TAG: i64 = 0;
 
 
+pub fn get_tag(n: i64) ->i64{
+    n & 1
+}
 
 pub fn tag_number(n:i64) -> i64{
     return n << 1;

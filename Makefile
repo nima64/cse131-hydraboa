@@ -1,14 +1,17 @@
+#prevent deleting .s file
+# .PRECIOUS: tests/%.s
+
 # Do not change this starting part, used by mod.rs
 UNAME := $(shell uname)
 
-ifeq ($(UNAME), Linux)
+# ifeq ($(UNAME), Linux)
 ARCH := elf64
 RUST_TARGET := x86_64-unknown-linux-gnu
-endif
-ifeq ($(UNAME), Darwin)
-ARCH := macho64
-RUST_TARGET := x86_64-apple-darwin
-endif
+# endif
+# ifeq ($(UNAME), Darwin)
+# ARCH := macho64
+# RUST_TARGET := x86_64-apple-darwin
+# endif
 
 tests/%.run: tests/%.s runtime/start.rs
 	nasm -f $(ARCH) tests/$*.s -o tests/$*.o

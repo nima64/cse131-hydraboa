@@ -18,6 +18,8 @@ fn parse_expr(s: &Sexp) -> Expr {
     match s {
         Sexp::Atom(I(n)) => Expr::Number(tag_number(*n)),
         Sexp::Atom(S(name)) => {
+            //
+            /* Check is boolean */ 
             if(name == "true"){
                 return Expr::Boolean(true);
             }else if (name == "false"){
@@ -30,7 +32,7 @@ fn parse_expr(s: &Sexp) -> Expr {
             match &vec[..] {
                 [Sexp::Atom(S(op)), e] if op == "add1" => {
                     Expr::UnOp(Op1::Add1, Box::new(parse_expr(e)))
-                } // rescursively call parse
+                } 
                 [Sexp::Atom(S(op)), e] if op == "sub1" => {
                     Expr::UnOp(Op1::Sub1, Box::new(parse_expr(e)))
                 }
@@ -205,7 +207,7 @@ fn compile_expr_with_env_repl(
             }
         Expr::Define(name, e) => {
                 let instrs = compile_expr_with_env_repl(e, stack_depth, env, replEnv);
-                let val = jitCode(&instrs);
+                let val = jit_code(&instrs);
 
                 let boxed_val = Box::new(val);
                 if !replEnv.contains_key(name) {
@@ -227,7 +229,15 @@ fn compile_expr_with_env_repl(
 }
 
 fn compile_expr(e: &Expr) -> Vec<Instr> {
-    compile_expr_with_env_repl(e, 16, &HashMap::new(), &mut HashMap::new())
+    let stack_depth = 16;
+    let mut env = HashMap::new();
+    //mov input into stack
+    let mut prepend_instrs = vec![];
+    prepend_instrs.push(Instr::MovToStack(Reg::Rdi, stack_depth));
+    env.insert("input".to_string(), stack_depth);
+    let instrs = compile_expr_with_env_repl(e, stack_depth+8, &env, &mut HashMap::new());
+    prepend_instrs.extend(instrs);
+    prepend_instrs
 }
 
 fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<Instr> {
@@ -235,7 +245,7 @@ fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<I
 }
 
 
-fn jitCode(instrs: &Vec<Instr>) -> i64 {
+fn jit_code_input(instrs: &Vec<Instr>, input: u64) -> i64 {
     let mut ops: dynasmrt::Assembler<dynasmrt::x64::X64Relocation> =
         dynasmrt::x64::Assembler::new().unwrap();
     let start = ops.offset();
@@ -248,23 +258,37 @@ fn jitCode(instrs: &Vec<Instr>) -> i64 {
     dynasm!(ops; .arch x64; ret);
 
     let buf = ops.finalize().unwrap();
-    let jitted_fn: extern "C" fn() -> i64 = unsafe { mem::transmute(buf.ptr(start)) };
-    let result = jitted_fn();
+    let jitted_fn: extern "C" fn(u64) -> i64 = unsafe { mem::transmute(buf.ptr(start)) };
+    let result = jitted_fn(input);
     result
+}
+fn jit_code(instrs: &Vec<Instr>) -> i64 {
+    jit_code_input(instrs, FLASE_TAGGED as u64)
 }
 
 fn format_result(res: i64) -> String{
-    let tag: i64 = res & 1;
-    if(tag == BOOL_TAG){
-        if (res == TRUE_TAGGED){
+    let tag = get_tag(res);
+    if tag == BOOL_TAG {
+        if res == TRUE_TAGGED {
             return "true".to_string();
         }else{
             return "false".to_string();
         }
     }
-
     return untag_number(res).to_string();
-        
+}
+
+fn parse_input(input: &str) -> u64 {
+    let trimmed = input.trim();
+    let res = trimmed.parse::<i64>();
+    if let Ok(n) = res {
+        return tag_number(n) as u64;
+    }
+    match trimmed {
+        "true" => TRUE_TAGGED as u64,
+        "false" => FLASE_TAGGED as u64,
+        _ => panic!("Invalid input")
+    }
 }
 
 fn main() -> std::io::Result<()> {
@@ -279,6 +303,8 @@ fn main() -> std::io::Result<()> {
     if use_jit {
         // JIT compilation path (-e or -g)
         let in_name = &args[2]; // Second arg after flag
+        let input_arg = if args.len() >= 4 { &args[3] } else { "false" };
+        let input = parse_input(input_arg);
 
         let mut in_file = File::open(in_name)?;
         let mut in_contents = String::new();
@@ -287,7 +313,8 @@ fn main() -> std::io::Result<()> {
         let expr: Expr = parse_expr(&parse(&in_contents).unwrap());
         let instrs = compile_expr(&expr);
 
-        jitCode(&instrs);
+        let result = jit_code_input(&instrs, input);
+        println!("{}", format_result(result));
     } else if use_repl {
         let mut replEnv: HashMap<String, Box<i64>> = HashMap::new();
         while true {
@@ -333,7 +360,7 @@ fn main() -> std::io::Result<()> {
 
             // Step 4: Execute and print result
             if !instrs.is_empty() {
-                let result = jitCode(&instrs);
+                let result = jit_code(&instrs);
                 println!("{}", format_result(result));
             }
         }
@@ -344,7 +371,6 @@ fn main() -> std::io::Result<()> {
         let mut in_file = File::open(in_name)?;
         let mut in_contents = String::new();
         in_file.read_to_string(&mut in_contents)?;
-
         let expr = parse_expr(&parse(&in_contents).unwrap());
         let instrs = compile_expr(&expr);
         let result = instrs_to_string(&instrs);
