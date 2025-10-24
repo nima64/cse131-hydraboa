@@ -1,5 +1,5 @@
 #prevent deleting .s file
-# .PRECIOUS: tests/%.s
+.PRECIOUS: tests/%.s
 
 # Do not change this starting part, used by mod.rs
 UNAME := $(shell uname)
@@ -17,6 +17,8 @@ tests/%.run: tests/%.s runtime/start.rs
 	nasm -f $(ARCH) tests/$*.s -o tests/$*.o
 	ar rcs tests/lib$*.a tests/$*.o
 	rustc --target $(RUST_TARGET) -L tests/ -lour_code:$* runtime/start.rs -o tests/$*.run
+# clean up .o and .a files
+	rm -f tests/$*.o tests/lib$*.a
 
 
 # Change below to whatever might be helpful! 

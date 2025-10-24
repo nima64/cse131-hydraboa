@@ -1,0 +1,5 @@
+(let ((i 0))
+  (loop 
+    (if (< i 6)
+        (set! i (add1 i))
+        (break i))))

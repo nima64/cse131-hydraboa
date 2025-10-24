@@ -106,6 +106,9 @@ pub enum Expr {
     Block(Vec<Expr>),
     BinOp(Op2, Box<Expr>, Box<Expr>),
     If(Box<Expr>, Box<Expr>, Box<Expr>),
+    Loop(Box<Expr>),
+    Break(Box<Expr>),
+    Set(String, Box<Expr>),
 }
 
 pub struct CompileCtx {
