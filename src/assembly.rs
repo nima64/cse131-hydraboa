@@ -93,6 +93,7 @@ fn reg_to_byte_string(reg: &Reg) -> &str {
     }
 }
 
+// Dynasm
 pub fn instr_to_asm(i: &Instr, ops: &mut dynasmrt::x64::Assembler) {
     match i {
         Instr::Mov(reg, val) => {

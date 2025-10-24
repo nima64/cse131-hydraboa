@@ -18,6 +18,7 @@ use assembly::*;
 struct CompileCtx {
     label_counter: i32,
     loop_depth: i32,
+    current_loop_id: i32
     // current_loop_end: Option<String>
 }
 
@@ -141,8 +142,7 @@ fn compile_expr_with_env_repl(
     stack_depth: i32,
     env: &HashMap<String, i32>,
     replEnv: &mut HashMap<String, Box<i64>>,
-    mut ctx: CompileCtx,  // Pass by value (copied each call)
-    current_loop_end: Option<String>  // Pass loop end label as parameter
+    mut ctx: CompileCtx  // Pass by value (copied each call)
 ) -> Vec<Instr> {
     match e {
         Expr::Number(n) => vec![Instr::Mov(Reg::Rax, *n)],
@@ -159,18 +159,21 @@ fn compile_expr_with_env_repl(
                         }
             }
         Expr::UnOp(op, subexpr) => {
-                let mut instrs = compile_expr_with_env_repl(subexpr, stack_depth, env, replEnv, ctx, current_loop_end);
+                let mut instrs = compile_expr_with_env_repl(subexpr, stack_depth, env, replEnv, ctx);
                 if matches!(op, Op1::Add1) {
-                    instrs.push(Instr::Add(Reg::Rax, 1));
+                    instrs.push(Instr::Mov(Reg::Rcx, tag_number(1)));
+                    instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
                 } else if matches!(op, Op1::Sub1) {
-                    instrs.push(Instr::Add(Reg::Rax, -1));
+                    instrs.push(Instr::MovReg(Reg::Rcx, Reg::Rax));
+                    instrs.push(Instr::Mov(Reg::Rcx, tag_number(-1)));
+                    instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
                 } else {
                     panic!("Invalid op {:?}!", op);
                 }
                 instrs
             }
         Expr::BinOp(op, e1, e2) => {
-                let mut instrs = compile_expr_with_env_repl(e1, stack_depth, env, replEnv, ctx, current_loop_end.clone());
+                let mut instrs = compile_expr_with_env_repl(e1, stack_depth, env, replEnv, ctx);
                 instrs.push(Instr::MovToStack(Reg::Rax, stack_depth));
                 instrs.extend(compile_expr_with_env_repl(
                     e2,
@@ -178,7 +181,6 @@ fn compile_expr_with_env_repl(
                     env,
                     replEnv,
                     ctx,
-                    current_loop_end,
                 ));
 
                 if matches!(op, Op2::Less | Op2::Greater) {
@@ -215,19 +217,18 @@ fn compile_expr_with_env_repl(
                 let mut instrs = Vec::new();
                 let mut new_env = env.clone();
                 let mut current_depth = stack_depth;
-                let mut duplicateBinding = HashMap::new();
+                let mut duplicate_binding = HashMap::new();
                 for (var, val_expr) in bindings {
-                    if duplicateBinding.contains_key(var) {
+                    if duplicate_binding.contains_key(var) {
                         panic!("Duplicate binding");
                     }
-                    duplicateBinding.insert(var, 1);
+                    duplicate_binding.insert(var, 1);
                     instrs.extend(compile_expr_with_env_repl(
                         val_expr,
                         current_depth,
                         &new_env,
                         replEnv,
                         ctx,
-                        current_loop_end.clone(),
                     ));
                     instrs.push(Instr::MovToStack(Reg::Rax, current_depth));
 
@@ -241,12 +242,11 @@ fn compile_expr_with_env_repl(
                     &new_env,
                     replEnv,
                     ctx,
-                    current_loop_end,
                 ));
                 instrs
             }
         Expr::Define(name, e) => {
-                let instrs = compile_expr_with_env_repl(e, stack_depth, env, replEnv, ctx, current_loop_end);
+                let instrs = compile_expr_with_env_repl(e, stack_depth, env, replEnv, ctx);
                 let val = jit_code(&instrs);
 
                 let boxed_val = Box::new(val);
@@ -269,7 +269,7 @@ fn compile_expr_with_env_repl(
             let mut instrs:Vec<Instr> = vec![];
 
             for expr in exprs {
-                instrs.extend(compile_expr_with_env_repl(expr, stack_depth, env, replEnv, ctx, current_loop_end.clone()));
+                instrs.extend(compile_expr_with_env_repl(expr, stack_depth, env, replEnv, ctx));
             }
             instrs
         },
@@ -280,21 +280,26 @@ fn compile_expr_with_env_repl(
             let loop_label = format!("loop_{}", loop_id);
             let end_loop_label = format!("endloop_{}", loop_id);
 
+            // Create new context with this loop's ID
+            let mut loop_ctx = ctx;
+            loop_ctx.current_loop_id = loop_id;
+            loop_ctx.loop_depth += 1;
+
             let mut instrs = vec![];
             instrs.push(Instr::Label(loop_label.clone()));
-            // Pass the END label of THIS loop to the body
-            instrs.extend(compile_expr_with_env_repl(e, stack_depth, env, replEnv, ctx, Some(end_loop_label.clone())));
+            instrs.extend(compile_expr_with_env_repl(e, stack_depth, env, replEnv, loop_ctx));
             instrs.push(Instr::Jmp(loop_label.clone()));
             instrs.push(Instr::Label(end_loop_label));
             instrs
         },
         Expr::Break(e) =>{
-            if current_loop_end.is_none() {
+            if ctx.loop_depth == 0 {
                 panic!("Invalid: break outside of loop");
             }
             let mut instrs = vec![];
-            instrs.extend(compile_expr_with_env_repl(e, stack_depth, env, replEnv, ctx, current_loop_end.clone()));
-            instrs.push(Instr::Jmp(current_loop_end.unwrap()));
+            instrs.extend(compile_expr_with_env_repl(e, stack_depth, env, replEnv, ctx));
+            let loop_end_label = format!("endloop_{}", ctx.current_loop_id);
+            instrs.push(Instr::Jmp(loop_end_label));
             instrs
         },
         Expr::Set(name, e) => {
@@ -306,7 +311,7 @@ fn compile_expr_with_env_repl(
             let mut instrs = vec![];
 
             // Compile the expression to assign (result in RAX)
-            instrs.extend(compile_expr_with_env_repl(e, stack_depth, env, replEnv, ctx, current_loop_end));
+            instrs.extend(compile_expr_with_env_repl(e, stack_depth, env, replEnv, ctx));
 
             // Store RAX into the variable's stack location
             if let Some(offset) = env.get(name) {
@@ -331,7 +336,7 @@ fn compile_expr_with_env_repl(
             let end_label = format!("end_if_{}", label_id);
 
             // 1. Compile and evaluate the condition (result in RAX)
-            instrs.extend(compile_expr_with_env_repl(cond, stack_depth, env, replEnv, ctx, current_loop_end.clone()));
+            instrs.extend(compile_expr_with_env_repl(cond, stack_depth, env, replEnv, ctx));
 
             instrs.push(Instr::CmpImm(Reg::Rax, FLASE_TAGGED));
 
@@ -339,7 +344,7 @@ fn compile_expr_with_env_repl(
             instrs.push(Instr::Je(else_label.clone()));
 
             // 4. Compile then branch (executed if condition is NOT false)
-            instrs.extend(compile_expr_with_env_repl(then_expr, stack_depth, env, replEnv, ctx, current_loop_end.clone()));
+            instrs.extend(compile_expr_with_env_repl(then_expr, stack_depth, env, replEnv, ctx));
 
             // 5. Jump to end (skip else branch)
             instrs.push(Instr::Jmp(end_label.clone()));
@@ -347,7 +352,7 @@ fn compile_expr_with_env_repl(
             // 6. Else branch label
             instrs.push(Instr::Label(else_label));
 
-            instrs.extend(compile_expr_with_env_repl(else_expr, stack_depth, env, replEnv, ctx, current_loop_end));
+            instrs.extend(compile_expr_with_env_repl(else_expr, stack_depth, env, replEnv, ctx));
 
             // 8. End label
             instrs.push(Instr::Label(end_label));
@@ -364,15 +369,15 @@ fn compile_expr(e: &Expr) -> Vec<Instr> {
     let mut prepend_instrs = vec![];
     prepend_instrs.push(Instr::MovToStack(Reg::Rdi, stack_depth));
     env.insert("input".to_string(), stack_depth);
-    let ctx = CompileCtx { label_counter: 0, loop_depth: 0 };
-    let instrs = compile_expr_with_env_repl(e, stack_depth+8, &env, &mut HashMap::new(), ctx, None);
+    let ctx = CompileCtx { label_counter: 0, loop_depth: 0, current_loop_id: -1 };
+    let instrs = compile_expr_with_env_repl(e, stack_depth+8, &env, &mut HashMap::new(), ctx);
     prepend_instrs.extend(instrs);
     prepend_instrs
 }
 
 fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<Instr> {
-    let ctx = CompileCtx { label_counter: 0, loop_depth: 0 };
-    compile_expr_with_env_repl(e, 16, &HashMap::new(), replEnv, ctx, None)
+    let ctx = CompileCtx { label_counter: 0, loop_depth: 0, current_loop_id: -1 };
+    compile_expr_with_env_repl(e, 16, &HashMap::new(), replEnv, ctx)
 }
 
 
@@ -419,7 +424,9 @@ fn parse_input(input: &str) -> u64 {
     match trimmed {
         "true" => TRUE_TAGGED as u64,
         "false" => FLASE_TAGGED as u64,
-        _ => panic!("Invalid input")
+        _ => {
+            LASE_TAGGED as u64
+        }
     }
 }
 

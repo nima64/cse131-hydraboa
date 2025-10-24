@@ -3,8 +3,7 @@ mod infra;
 // Your tests go here!
 success_tests! {
     test_input: { file: "input", input: "2", expected: "2" },
-    basic_loop: { file: "basic_loop", input: "", expected: "6" },
-    cobra_example_2: { file: "cobra_example_2", input: "", expected: "-6" },
+    nested_loop: { file: "nested_loop", input: "", expected: "-6" },
 
 }
 

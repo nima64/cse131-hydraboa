@@ -111,7 +111,9 @@ pub enum Expr {
     Set(String, Box<Expr>),
 }
 
+#[derive(Clone, Copy)]
 pub struct CompileCtx {
     pub loop_depth: i32,
     pub label_counter: i32,
+    pub current_loop_id: i32,  // -1 means not in a loop, otherwise the loop's label ID
 }
