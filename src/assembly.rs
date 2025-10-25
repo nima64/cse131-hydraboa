@@ -1,5 +1,7 @@
 use crate::types::*;
-use dynasmrt::{dynasm, DynasmApi};
+use dynasmrt::{dynasm, DynamicLabel, DynasmApi, DynasmLabelApi};
+use std::collections::HashMap;
+use std::mem;
 
 pub fn instr_to_string(instr: &Instr) -> String {
     match instr {
@@ -18,6 +20,9 @@ pub fn instr_to_string(instr: &Instr) -> String {
         Instr::iMul(reg1, reg2) => {
             format!("imul {}, {}", reg_to_string(reg1), reg_to_string(reg2))
         }
+        Instr::XorReg(reg1, reg2) => {
+            format!("xor {}, {}", reg_to_string(reg1), reg_to_string(reg2))
+        }
         Instr::MovToStack(reg, offset) => format!("mov [rsp - {}], {}", offset, reg_to_string(reg)),
         Instr::MovFromStack(reg, offset) => {
             format!("mov {}, [rsp - {}]", reg_to_string(reg), offset)
@@ -33,6 +38,9 @@ pub fn instr_to_string(instr: &Instr) -> String {
         }
         Instr::SetG(reg) => {
             format!("setg {}", reg_to_byte_string(reg))
+        }
+        Instr::SetEq(reg) => {
+            format!("sete {}", reg_to_byte_string(reg))
         }
         Instr::Shl(reg, val) => {
             format!("shl {}, {}", reg_to_string(reg), val)
@@ -58,6 +66,9 @@ pub fn instr_to_string(instr: &Instr) -> String {
         Instr::Label(label) => {
             format!("{}:", label)
         }
+        Instr::Error(code) => {
+            format!("mov rdi, {}\ncall snek_error", code)
+        }
     }
 }
 
@@ -68,7 +79,6 @@ pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
         .collect::<Vec<String>>()
         .join("\n")
 }
-
 
 fn reg_to_string(reg: &Reg) -> &str {
     match reg {
@@ -92,14 +102,21 @@ fn reg_to_byte_string(reg: &Reg) -> &str {
         _ => panic!("No byte register for {:?}", reg),
     }
 }
-
+pub extern "C" fn snek_error(errorcode: i64) {
+    eprintln!("an error occured {errorcode}");
+    std::process::exit(1);
+}
 // Dynasm
-pub fn instr_to_asm(i: &Instr, ops: &mut dynasmrt::x64::Assembler) {
+pub fn instr_to_asm(
+    i: &Instr,
+    ops: &mut dynasmrt::x64::Assembler,
+    labels: &mut HashMap<String, DynamicLabel>,
+) {
     match i {
         Instr::Mov(reg, val) => {
             let r = reg.to_num();
             dynasm!(
-                ops; .arch x64; 
+                ops; .arch x64;
                 mov rax, QWORD *val as i64;
                 mov Rq(r), rax
             );
@@ -132,6 +149,11 @@ pub fn instr_to_asm(i: &Instr, ops: &mut dynasmrt::x64::Assembler) {
             let r2 = reg2.to_num();
             dynasm!(ops; .arch x64; mov Rq(r1), Rq(r2));
         }
+        Instr::XorReg(reg1, reg2) => {
+            let r1 = reg1.to_num();
+            let r2 = reg2.to_num();
+            dynasm!(ops; .arch x64; xor Rq(r1), Rq(r2));
+        }
         Instr::MovToStack(reg, offset) => {
             let r = reg.to_num();
             dynasm!(ops; .arch x64; mov [rsp - *offset], Rq(r));
@@ -155,6 +177,11 @@ pub fn instr_to_asm(i: &Instr, ops: &mut dynasmrt::x64::Assembler) {
             dynasm!(ops; .arch x64; setl Rb(r));
             dynasm!(ops; .arch x64; movzx Rq(r), Rb(r));
         }
+        Instr::SetEq(reg) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; sete Rb(r));
+            dynasm!(ops; .arch x64; movzx Rq(r), Rb(r));
+        }
         Instr::SetG(reg) => {
             let r = reg.to_num();
             dynasm!(ops; .arch x64; setg Rb(r));
@@ -172,21 +199,44 @@ pub fn instr_to_asm(i: &Instr, ops: &mut dynasmrt::x64::Assembler) {
             let r = reg.to_num();
             dynasm!(ops; .arch x64; test Rq(r), *val as i32);
         }
-        Instr::Jne(_label) => {
-            panic!("JIT compilation with labels requires using jit_code_input with label support");
+        Instr::Jne(label_name) => {
+            let lbl = labels
+                .entry(label_name.clone())
+                .or_insert_with(|| ops.new_dynamic_label());
+            dynasm!(ops; .arch x64; jne => *lbl);
         }
         Instr::CmpImm(reg, val) => {
             let r = reg.to_num();
             dynasm!(ops; .arch x64; cmp Rq(r), *val as i32);
         }
-        Instr::Je(_label) => {
-            panic!("JIT compilation with labels requires using jit_code_input with label support");
+        Instr::Je(label_name) => {
+            let lbl = labels
+                .entry(label_name.clone())
+                .or_insert_with(|| ops.new_dynamic_label());
+            dynasm!(ops; .arch x64; je => *lbl);
         }
-        Instr::Jmp(_label) => {
-            panic!("JIT compilation with labels requires using jit_code_input with label support");
+        Instr::Jmp(label_name) => {
+            let lbl = labels
+                .entry(label_name.clone())
+                .or_insert_with(|| ops.new_dynamic_label());
+            dynasm!(ops; .arch x64; jmp => *lbl);
         }
-        Instr::Label(_label) => {
-            // Labels are no-ops in JIT without label support
+        Instr::Label(label_name) => {
+            labels.insert(label_name.clone(), ops.new_dynamic_label());
+            // let lbl = labels.entry(label_name.clone())
+            //     .or_insert_with(|| ops.new_dynamic_label());
+            print!("added label {}", label_name);
+            // dynasm!(ops; .arch x64; => *lbl);
+        }
+        Instr::Error(code) => {
+            let c_func_ptr: extern "C" fn(i64) -> i64 =
+                unsafe { mem::transmute(snek_error as *const ()) };
+            dynasm!(ops
+                ; mov rax, QWORD c_func_ptr as i64 // Load the C function address into RAX
+                ; mov rdi, *code // Set the argument for the C function (assuming x64 calling convention)
+                ; call rax // Call the C function
+                ; ret // Return from the generated code
+            );
         }
     }
 }
