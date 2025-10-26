@@ -182,7 +182,7 @@ fn compile_expr_with_env_repl(
                     instrs.push(Instr::Test(Reg::Rdx, 1)); // Test bit 0
 
                     // If bit 0 is set, types differ -> error
-                    instrs.push(Instr::Jnz("error".to_string()));
+                    instrs.push(Instr::Jnz("snek_error".to_string()));
 
                     // Types match, do comparison
                     instrs.push(Instr::Cmp(Reg::Rcx, Reg::Rax));
@@ -460,7 +460,7 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
 
     let mut labels: HashMap<String, DynamicLabel> = HashMap::new();
     let error = ops.new_dynamic_label();
-    labels.insert("error".to_string(), error);
+    labels.insert("snek_error".to_string(), error);
     let c_func_ptr: extern "C" fn(i64) -> i64 = unsafe { mem::transmute(snek_error as *const ()) };
 
     
