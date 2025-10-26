@@ -29,6 +29,9 @@ pub fn instr_to_string(instr: &Instr) -> String {
         Instr::MovDeref(dest, src) => {
             format!("mov {}, [{}]", reg_to_string(dest), reg_to_string(src))
         }
+        Instr::MovToMem(dest, src) => {
+            format!("mov [{}], {}", reg_to_string(dest), reg_to_string(src))
+        }
         Instr::Cmp(reg1, reg2) => {
             format!("cmp {}, {}", reg_to_string(reg1), reg_to_string(reg2))
         }
@@ -160,6 +163,11 @@ pub fn instr_to_asm(
             let d = dest.to_num();
             let s = src.to_num();
             dynasm!(ops; .arch x64; mov Rq(d), [Rq(s)]);
+        }
+        Instr::MovToMem(dest, src) => {
+            let d = dest.to_num();
+            let s = src.to_num();
+            dynasm!(ops; .arch x64; mov [Rq(d)], Rq(s));
         }
         Instr::Cmp(reg1, reg2) => {
             let r1 = reg1.to_num();

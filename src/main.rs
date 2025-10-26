@@ -131,7 +131,7 @@ fn compile_expr_with_env_repl(
     e: &Expr,
     stack_depth: i32,
     env: &HashMap<String, i32>,
-    replEnv: &mut HashMap<String, Box<i64>>,
+    define_env: &mut HashMap<String, Box<i64>>,
     mut ctx: CompileCtx, // Pass by value (copied each call)
 ) -> Vec<Instr> {
     match e {
@@ -140,16 +140,17 @@ fn compile_expr_with_env_repl(
             // Check env (stack) first for local variables
             if let Some(offset) = env.get(name) {
                 vec![Instr::MovFromStack(Reg::Rax, *offset)]
-            } else if let Some(boxed_value) = replEnv.get(name) {
+            } else if let Some(boxed_value) = define_env.get(name) {
                 // If not in env, check replEnv for defined variables
-                println!("value held in {}: {}", name, **boxed_value);
+                println!("value held in {}: {}", name, untag_number(**boxed_value));
                 vec![Instr::Mov(Reg::Rax, **boxed_value)]
+                
             } else {
                 panic!("Unbound variable identifier {}", name)
             }
         }
         Expr::UnOp(op, subexpr) => {
-            let mut instrs = compile_expr_with_env_repl(subexpr, stack_depth, env, replEnv, ctx);
+            let mut instrs = compile_expr_with_env_repl(subexpr, stack_depth, env, define_env, ctx);
             if matches!(op, Op1::Add1) {
                 instrs.push(Instr::Mov(Reg::Rcx, tag_number(1)));
                 instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
@@ -162,13 +163,13 @@ fn compile_expr_with_env_repl(
             instrs
         }
         Expr::BinOp(op, e1, e2) => {
-            let mut instrs = compile_expr_with_env_repl(e1, stack_depth, env, replEnv, ctx);
+            let mut instrs = compile_expr_with_env_repl(e1, stack_depth, env, define_env, ctx);
             instrs.push(Instr::MovToStack(Reg::Rax, stack_depth));
             instrs.extend(compile_expr_with_env_repl(
                 e2,
                 stack_depth + 8,
                 env,
-                replEnv,
+                define_env,
                 ctx,
             ));
             match op {
@@ -237,7 +238,7 @@ fn compile_expr_with_env_repl(
                     val_expr,
                     current_depth,
                     &new_env,
-                    replEnv,
+                    define_env,
                     ctx,
                 ));
                 instrs.push(Instr::MovToStack(Reg::Rax, current_depth));
@@ -250,19 +251,18 @@ fn compile_expr_with_env_repl(
                 body,
                 current_depth,
                 &new_env,
-                replEnv,
+                define_env,
                 ctx,
             ));
             instrs
         }
         Expr::Define(name, e) => {
-            let instrs = compile_expr_with_env_repl(e, stack_depth, env, replEnv, ctx);
+            let instrs = compile_expr_with_env_repl(e, stack_depth, env, define_env, ctx);
             let val = jit_code(&instrs);
 
             let boxed_val = Box::new(val);
-            if !replEnv.contains_key(name) {
-                // Key already exists, you can handle this case if needed
-                replEnv.insert(name.clone(), boxed_val); // Store the Box directly
+            if !define_env.contains_key(name) {
+                define_env.insert(name.clone(), boxed_val); 
             } else {
                 println!("Duplicate binding");
             }
@@ -283,7 +283,7 @@ fn compile_expr_with_env_repl(
                     expr,
                     stack_depth,
                     env,
-                    replEnv,
+                    define_env,
                     ctx,
                 ));
             }
@@ -307,7 +307,7 @@ fn compile_expr_with_env_repl(
                 e,
                 stack_depth,
                 env,
-                replEnv,
+                define_env,
                 loop_ctx,
             ));
             instrs.push(Instr::Jmp(loop_label.clone()));
@@ -323,7 +323,7 @@ fn compile_expr_with_env_repl(
                 e,
                 stack_depth,
                 env,
-                replEnv,
+                define_env,
                 ctx,
             ));
             let loop_end_label = format!("endloop_{}", ctx.current_loop_id);
@@ -332,7 +332,7 @@ fn compile_expr_with_env_repl(
         }
         Expr::Set(name, e) => {
             // Check if variable is bound in the environment
-            if !env.contains_key(name) && !replEnv.contains_key(name) {
+            if !env.contains_key(name) && !define_env.contains_key(name) {
                 panic!("Unbound variable identifier {}", name);
             }
 
@@ -343,38 +343,34 @@ fn compile_expr_with_env_repl(
                 e,
                 stack_depth,
                 env,
-                replEnv,
+                define_env,
                 ctx,
             ));
 
-            // Store RAX into the variable's stack location
             if let Some(offset) = env.get(name) {
-                // Variable is on the stack (from let binding)
                 instrs.push(Instr::MovToStack(Reg::Rax, *offset));
-            } else if replEnv.contains_key(name) {
-                // Variable is in replEnv (from define) - for now just panic
-                // We'll handle this properly when implementing REPL with set!
-                panic!("set! on define variables not yet supported in basic compilation");
+            } else if define_env.contains_key(name) {
+                // Get the pointer to the heap-allocated i64
+                let ptr_addr = &**define_env.get(name).unwrap() as *const i64 as i64;
+                instrs.push(Instr::Mov(Reg::Rcx, ptr_addr));
+                instrs.push(Instr::MovToMem(Reg::Rcx, Reg::Rax));
             }
 
-            // set! evaluates to the new value (already in RAX)
             instrs
         }
         Expr::If(cond, then_expr, else_expr) => {
             let mut instrs = vec![];
-            // Generate unique labels using the current label counter
             let label_id = ctx.label_counter;
-            ctx.label_counter += 1; // Increment for next label (propagates automatically!)
+            ctx.label_counter += 1; 
 
             let else_label = format!("else_{}", label_id);
             let end_label = format!("end_if_{}", label_id);
 
-            // 1. Compile and evaluate the condition (result in RAX)
             instrs.extend(compile_expr_with_env_repl(
                 cond,
                 stack_depth,
                 env,
-                replEnv,
+                define_env,
                 ctx,
             ));
 
@@ -383,12 +379,11 @@ fn compile_expr_with_env_repl(
             // 3. Jump to else branch if condition equals false
             instrs.push(Instr::Je(else_label.clone()));
 
-            // 4. Compile then branch (executed if condition is NOT false)
             instrs.extend(compile_expr_with_env_repl(
                 then_expr,
                 stack_depth,
                 env,
-                replEnv,
+                define_env,
                 ctx,
             ));
 
@@ -402,11 +397,10 @@ fn compile_expr_with_env_repl(
                 else_expr,
                 stack_depth,
                 env,
-                replEnv,
+                define_env,
                 ctx,
             ));
 
-            // 8. End label
             instrs.push(Instr::Label(end_label));
 
             instrs
@@ -471,7 +465,6 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
         }
     }
     
-    // Now emit all instructions
     for instr in instrs {
         instr_to_asm(instr, &mut ops, &labels);
     }
@@ -482,11 +475,10 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
     );
     dynasm!(ops
         ; =>error
-        // ; mov rax, tag_number(6999999) as i32
-        ; mov rax, QWORD c_func_ptr as i64 // Load the C function address into RAX
-        ; mov rdi, 1 // Set the argument for the C function (assuming x64 calling convention)
-        ; call rax // Call the C function
-        ; ret // Return from the generated code
+        ; mov rax, QWORD c_func_ptr as i64 
+        ; mov rdi, 1 
+        ; call rax 
+        ; ret 
     );
 
     dynasm!(ops
@@ -580,7 +572,6 @@ fn main() -> std::io::Result<()> {
                 }
             };
 
-            // Step 3: Compile the expression (might panic)
             let compile_result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
                 compile_expr_repl(&expr, &mut replEnv)
             }));
@@ -593,7 +584,6 @@ fn main() -> std::io::Result<()> {
                 }
             };
 
-            // Step 4: Execute and print result
             if !instrs.is_empty() {
                 let result = jit_code(&instrs);
                 println!("{}", format_result(result));

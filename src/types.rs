@@ -71,6 +71,7 @@ pub enum Instr {
     MovToStack(Reg, i32), // Register, stackdepth => mov [rsp - offset], register
     MovFromStack(Reg, i32), // mov register, [rsp - offset]
     MovDeref(Reg, Reg),   // mov dest_reg, [src_reg] - dereference src_reg and put in dest_reg
+    MovToMem(Reg, Reg),   // mov [dest_reg], src_reg - store src_reg value to memory at address in dest_reg
     Cmp(Reg, Reg),        // cmp reg1, reg2
     CmpImm(Reg, i64),     // cmp reg, immediate
     SetL(Reg),            // setl reg - set if less
