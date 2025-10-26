@@ -1,7 +1,6 @@
 use crate::types::*;
 use dynasmrt::{dynasm, DynamicLabel, DynasmApi, DynasmLabelApi};
-use std::collections::HashMap;
-use std::mem;
+use im::HashMap;
 
 pub fn instr_to_string(instr: &Instr) -> String {
     match instr {
@@ -60,14 +59,17 @@ pub fn instr_to_string(instr: &Instr) -> String {
         Instr::Je(label) => {
             format!("je {}", label)
         }
+        Instr::Jnz(label) => {
+            format!("jnz {}", label)
+        }
+        Instr::Jz(label) => {
+            format!("jz {}", label)
+        }
         Instr::Jmp(label) => {
             format!("jmp {}", label)
         }
         Instr::Label(label) => {
             format!("{}:", label)
-        }
-        Instr::Error(code) => {
-            format!("mov rdi, {}\ncall snek_error", code)
         }
     }
 }
@@ -102,24 +104,16 @@ fn reg_to_byte_string(reg: &Reg) -> &str {
         _ => panic!("No byte register for {:?}", reg),
     }
 }
-pub extern "C" fn snek_error(errorcode: i64) {
-    eprintln!("an error occured {errorcode}");
-    std::process::exit(1);
-}
 // Dynasm
 pub fn instr_to_asm(
     i: &Instr,
     ops: &mut dynasmrt::x64::Assembler,
-    labels: &mut HashMap<String, DynamicLabel>,
+    labels: &HashMap<String, DynamicLabel>,
 ) {
     match i {
         Instr::Mov(reg, val) => {
-            let r = reg.to_num();
-            dynasm!(
-                ops; .arch x64;
-                mov rax, QWORD *val as i64;
-                mov Rq(r), rax
-            );
+            let r: u8 = reg.to_num();
+            dynasm!(ops; .arch x64; mov Rq(r), QWORD *val);
         }
         Instr::Add(reg, val) => {
             let r = reg.to_num();
@@ -200,9 +194,10 @@ pub fn instr_to_asm(
             dynasm!(ops; .arch x64; test Rq(r), *val as i32);
         }
         Instr::Jne(label_name) => {
-            let lbl = labels
-                .entry(label_name.clone())
-                .or_insert_with(|| ops.new_dynamic_label());
+            let lbl = labels.get(label_name).unwrap();
+            // let lbl = labels
+            //     .entry(label_name.clone())
+            //     .or_insert_with(|| ops.new_dynamic_label());
             dynasm!(ops; .arch x64; jne => *lbl);
         }
         Instr::CmpImm(reg, val) => {
@@ -210,33 +205,24 @@ pub fn instr_to_asm(
             dynasm!(ops; .arch x64; cmp Rq(r), *val as i32);
         }
         Instr::Je(label_name) => {
-            let lbl = labels
-                .entry(label_name.clone())
-                .or_insert_with(|| ops.new_dynamic_label());
+            let lbl = labels.get(label_name).unwrap();
             dynasm!(ops; .arch x64; je => *lbl);
         }
+        Instr::Jnz(label_name) => {
+            let lbl = labels.get(label_name).unwrap();
+            dynasm!(ops; .arch x64; jnz => *lbl);
+        }
+        Instr::Jz(label_name) => {
+            let lbl = labels.get(label_name).unwrap();
+            dynasm!(ops; .arch x64; jz => *lbl);
+        }
         Instr::Jmp(label_name) => {
-            let lbl = labels
-                .entry(label_name.clone())
-                .or_insert_with(|| ops.new_dynamic_label());
+            let lbl = labels.get(label_name).unwrap();
             dynasm!(ops; .arch x64; jmp => *lbl);
         }
         Instr::Label(label_name) => {
-            labels.insert(label_name.clone(), ops.new_dynamic_label());
-            // let lbl = labels.entry(label_name.clone())
-            //     .or_insert_with(|| ops.new_dynamic_label());
-            print!("added label {}", label_name);
-            // dynasm!(ops; .arch x64; => *lbl);
-        }
-        Instr::Error(code) => {
-            let c_func_ptr: extern "C" fn(i64) -> i64 =
-                unsafe { mem::transmute(snek_error as *const ()) };
-            dynasm!(ops
-                ; mov rax, QWORD c_func_ptr as i64 // Load the C function address into RAX
-                ; mov rdi, *code // Set the argument for the C function (assuming x64 calling convention)
-                ; call rax // Call the C function
-                ; ret // Return from the generated code
-            );
+            let lbl = labels.get(label_name).unwrap();
+            dynasm!(ops; .arch x64; => *lbl);
         }
     }
 }

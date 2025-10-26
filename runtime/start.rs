@@ -52,7 +52,10 @@ fn parse_input(input: &str) -> i64 {
   match trimmed {
     "true" => TRUE_TAGGED as i64,
     "false" => FALSE_TAGGED as i64,
-    _=> panic!("Invalid input")
+    _=> {
+      // println!("not a valid input {}", _);
+      FALSE_TAGGED as i64
+    }
   } 
 }
 

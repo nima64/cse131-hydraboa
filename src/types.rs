@@ -81,9 +81,10 @@ pub enum Instr {
     Test(Reg, i64),       // test reg, immediate - for checking bits
     Jne(String),          // jne label - jump if not equal
     Je(String),           // je label - jump if equal
+    Jz(String),           // jz label - jump if zero
+    Jnz(String),          // jnz label - jump if not zero
     Jmp(String),          // jmp label - unconditional jump
     Label(String),        // label: - assembly label
-    Error(i32),
 }
 
 

@@ -1,8 +1,7 @@
-use dynasmrt::{dynasm, DynasmApi, DynamicLabel, DynasmLabelApi};
+use dynasmrt::{dynasm, DynamicLabel, DynasmApi, DynasmLabelApi};
 use im::HashMap;
 use sexp::Atom::*;
 use sexp::*;
-use std::collections::HashMap as StdHashMap;
 use std::env;
 use std::fs::File;
 use std::io;
@@ -155,8 +154,9 @@ fn compile_expr_with_env_repl(
                 instrs.push(Instr::Mov(Reg::Rcx, tag_number(1)));
                 instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
             } else if matches!(op, Op1::Sub1) {
-                instrs.push(Instr::MovReg(Reg::Rcx, Reg::Rax));
+                // copy num into rcx
                 instrs.push(Instr::Mov(Reg::Rcx, tag_number(-1)));
+                // add -1 to num
                 instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
             } else {
                 panic!("Invalid op {:?}!", op);
@@ -179,14 +179,12 @@ fn compile_expr_with_env_repl(
 
                     // Type check: both must be same type
                     // XOR the values - if tags differ, bit 0 will be 1
-                    instrs.push(Instr::MovReg(Reg::Rdx, Reg::Rcx));  // Copy e1 to RDX
-                    instrs.push(Instr::XorReg(Reg::Rdx, Reg::Rax));  // XOR e1 with e2
-                    instrs.push(Instr::Test(Reg::Rdx, 1));           // Test bit 0
+                    instrs.push(Instr::MovReg(Reg::Rdx, Reg::Rcx)); // Copy e1 to RDX
+                    instrs.push(Instr::XorReg(Reg::Rdx, Reg::Rax)); // XOR e1 with e2
+                    instrs.push(Instr::Test(Reg::Rdx, 1)); // Test bit 0
 
                     // If bit 0 is set, types differ -> error
-                    // let error_label = format!("type_error_{}", ctx.label_counter);
-                    // ctx.label_counter += 1;
-                    instrs.push(Instr::Jmp("error".to_string()));
+                    instrs.push(Instr::Jnz("error".to_string()));
 
                     // Types match, do comparison
                     instrs.push(Instr::Cmp(Reg::Rcx, Reg::Rax));
@@ -195,17 +193,6 @@ fn compile_expr_with_env_repl(
                     // Tag as boolean
                     instrs.push(Instr::Shl(Reg::Rax, 1));
                     instrs.push(Instr::Or(Reg::Rax, 1));
-
-                    // Skip error
-                    let end_label = format!("end_equal_{}", ctx.label_counter);
-                    ctx.label_counter += 1;
-                    instrs.push(Instr::Jmp(end_label.clone()));
-
-                    // Error handling
-                    // instrs.push(Instr::Label(error_label));
-                    instrs.push(Instr::Error(1)); // Error code 1 for "invalid argument"
-
-                    instrs.push(Instr::Label(end_label));
                 }
                 Op2::Less | Op2::Greater => {
                     instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
@@ -369,7 +356,7 @@ fn compile_expr_with_env_repl(
             } else if replEnv.contains_key(name) {
                 // Variable is in replEnv (from define) - for now just panic
                 // We'll handle this properly when implementing REPL with set!
-                panic!("set! on define'd variables not yet supported in basic compilation");
+                panic!("set! on define variables not yet supported in basic compilation");
             }
 
             // set! evaluates to the new value (already in RAX)
@@ -453,48 +440,70 @@ fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<I
         current_loop_id: -1,
     };
     compile_expr_with_env_repl(e, 16, &HashMap::new(), replEnv, ctx)
-}   
+}
 
+pub extern "C" fn snek_error(errorcode: i64) {
+    match errorcode {
+        1 => {
+            eprintln!("cannot compare different types!");
+            std::process::exit(1);
+        }
+        _ => {
+            panic!("invalid error code {}!", errorcode);
+        }
+    }
+}
 
-
-fn jit_code_input(instrs: &Vec<Instr>, input: u64) -> i64 {
-
+fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
     let mut ops: dynasmrt::Assembler<dynasmrt::x64::X64Relocation> =
         dynasmrt::x64::Assembler::new().unwrap();
     let start = ops.offset();
     dynasm!(ops; .arch x64);
 
-    let mut labels: StdHashMap<String, DynamicLabel> = StdHashMap::new();
-    let mut ops = dynasmrt::x64::Assembler::new().unwrap();
+    let mut labels: HashMap<String, DynamicLabel> = HashMap::new();
     let error = ops.new_dynamic_label();
     labels.insert("error".to_string(), error);
+    let c_func_ptr: extern "C" fn(i64) -> i64 = unsafe { mem::transmute(snek_error as *const ()) };
 
-
-    for instr in instrs.iter() {
-        instr_to_asm(instr, &mut ops, &mut labels);
+    
+    // Pre-create all labels
+    for instr in instrs {
+        if let Instr::Label(name) = instr {
+            labels.insert(name.clone(), ops.new_dynamic_label());
+        }
+    }
+    
+    // Now emit all instructions
+    for instr in instrs {
+        instr_to_asm(instr, &mut ops, &labels);
     }
 
-    // let c_func_ptr: extern "C" fn(i64) -> i64 =
-    // unsafe { mem::transmute(snek_error as *const ()) };
-    // dynasm!(ops
-    //     ; =>error
-    //     ; mov rax, QWORD c_func_ptr as i64 // Load the C function address into RAX
-    //     ; mov rdi, *code // Set the argument for the C function (assuming x64 calling convention)
-    //     ; call rax // Call the C function
-    //     ; ret // Return from the generated code
-    // );
 
+    dynasm!(ops
+        ; jmp ->done
+    );
+    dynasm!(ops
+        ; =>error
+        // ; mov rax, tag_number(6999999) as i32
+        ; mov rax, QWORD c_func_ptr as i64 // Load the C function address into RAX
+        ; mov rdi, 1 // Set the argument for the C function (assuming x64 calling convention)
+        ; call rax // Call the C function
+        ; ret // Return from the generated code
+    );
 
-    dynasm!(ops; .arch x64; ret);
+    dynasm!(ops
+        ; ->done:
+        ; ret
+    );
 
     let buf = ops.finalize().unwrap();
-    let jitted_fn: extern "C" fn(u64) -> i64 = unsafe { mem::transmute(buf.ptr(start)) };
+    let jitted_fn: extern "C" fn(i64) -> i64 = unsafe { mem::transmute(buf.ptr(start)) };
     let result = jitted_fn(input);
     result
 }
 
 fn jit_code(instrs: &Vec<Instr>) -> i64 {
-    jit_code_input(instrs, FLASE_TAGGED as u64)
+    jit_code_input(instrs, FLASE_TAGGED)
 }
 
 fn format_result(res: i64) -> String {
@@ -509,16 +518,16 @@ fn format_result(res: i64) -> String {
     return untag_number(res).to_string();
 }
 
-fn parse_input(input: &str) -> u64 {
+fn parse_input(input: &str) -> i64 {
     let trimmed = input.trim();
     let res = trimmed.parse::<i64>();
     if let Ok(n) = res {
-        return tag_number(n) as u64;
+        return tag_number(n);
     }
     match trimmed {
-        "true" => TRUE_TAGGED as u64,
-        "false" => FLASE_TAGGED as u64,
-        _ => FLASE_TAGGED as u64,
+        "true" => TRUE_TAGGED ,
+        "false" => FLASE_TAGGED ,
+        _ => FLASE_TAGGED,
     }
 }
 
