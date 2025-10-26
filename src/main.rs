@@ -154,9 +154,7 @@ fn compile_expr_with_env_repl(
                 instrs.push(Instr::Mov(Reg::Rcx, tag_number(1)));
                 instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
             } else if matches!(op, Op1::Sub1) {
-                // copy num into rcx
                 instrs.push(Instr::Mov(Reg::Rcx, tag_number(-1)));
-                // add -1 to num
                 instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
             } else {
                 panic!("Invalid op {:?}!", op);

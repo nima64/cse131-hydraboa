@@ -5,11 +5,11 @@
         (set! j 0)
         (loop
           (if (< j b)
-            (block (set! c (sub1 c)) (set! j (add1 j)))
+            (block (set! c (sub1 c)) (set! j (+ j 1)))
             (break c)
           )
         )
-        (set! i (add1 i))
+        (set! i (+ i 1))
       )
       (break c)
     )

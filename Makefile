@@ -28,7 +28,8 @@ tests/%.s: tests/%.snek src/main.rs
 	cargo run --target $(RUST_TARGET) -- $(MODE) $< tests/$*.s
 
 clean:
-	cargo clean
+#   cargo error with ieng6
+# 	cargo clean
 	rm -f tests/*.a tests/*.s tests/*.run tests/*.o
 
 .PHONY: test
