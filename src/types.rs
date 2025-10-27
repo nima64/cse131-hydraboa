@@ -35,10 +35,11 @@ pub enum Op2 {
     Equal,
 }
 
-pub const TRUE_TAGGED:i64 = 3;
-pub const FLASE_TAGGED:i64 = 1;
-pub const BOOL_TAG: i64 = 1;
-pub const NUM_TAG: i64 = 0;
+// Re-export constants from common module
+pub use crate::common::{
+    TRUE_TAGGED, FALSE_TAGGED, FLASE_TAGGED, BOOL_TAG, NUM_TAG,
+    get_tag, tag_number, untag_number, format_result, parse_input,
+};
 
 #[derive(Debug)]
 pub enum Expr {
@@ -94,17 +95,6 @@ pub struct CompileCtx {
     pub loop_depth: i32,
     pub label_counter: i32,
     pub current_loop_id: i32,  // -1 means not in a loop, otherwise the loop's label ID
-}
-
-pub fn get_tag(n: i64) ->i64{
-    n & 1
-}
-
-pub fn tag_number(n:i64) -> i64{
-    return n << 1;
-}
-pub fn untag_number(n:i64) -> i64{
-    return n >> 1;
 }
 
 // Helper to check if a value is a number (tag bit is 0)

@@ -1,16 +1,10 @@
 use std::env;
 
-pub const TRUE_TAGGED:i64 = 3;
-pub const FALSE_TAGGED:i64 = 1;
-pub const BOOL_TAG: i64 = 1;
-pub const NUM_TAG: i64 = 0;
+// Import the common module directly from src (no external dependencies)
+#[path = "../src/common.rs"]
+mod common;
 
-pub fn tag_number(n:i64) -> i64{
-    return n << 1;
-}
-pub fn untag_number(n:i64) -> i64{
-    return n >> 1;
-}
+use common::*;
 
 #[link(name = "our_code")]
 extern "C" {
@@ -26,37 +20,6 @@ extern "C" {
 pub extern "C" fn snek_error(errorcode:i64){
   eprintln!("an error occured {errorcode}");
   std::process::exit(1);
-}
-pub fn get_tag(n: i64) -> i64{
-    n & 1
-}
-
-fn format_result(res: i64) -> String{
-    let tag = get_tag(res);
-    if tag == BOOL_TAG {
-        if res == TRUE_TAGGED {
-            return "true".to_string();
-        }else{
-            return "false".to_string();
-        }
-    }
-    return untag_number(res).to_string();
-}
-
-fn parse_input(input: &str) -> i64 {
-  let trimmed = input.trim();
-  let res =trimmed.parse::<i64>(); 
-  if let Ok(n) = res {
-    return tag_number(n);
-  }
-  match trimmed {
-    "true" => TRUE_TAGGED as i64,
-    "false" => FALSE_TAGGED as i64,
-    _=> {
-      // println!("not a valid input {}", _);
-      FALSE_TAGGED as i64
-    }
-  } 
 }
 
 fn main() {

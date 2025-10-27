@@ -3,6 +3,11 @@ name = "adder"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "adder"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
 [[bin]]
 name = "cobra"
 path = "src/main.rs"

@@ -13,12 +13,15 @@ RUST_TARGET := x86_64-unknown-linux-gnu
 # RUST_TARGET := x86_64-apple-darwin
 # endif
 
-tests/%.run: tests/%.s runtime/start.rs
+target/$(RUST_TARGET)/debug/libadder.rlib: src/lib.rs src/types.rs src/assembly.rs src/common.rs
+	cargo build --target $(RUST_TARGET) --lib
+
+tests/%.run: tests/%.s runtime/start.rs src/common.rs
 	nasm -f $(ARCH) tests/$*.s -o tests/$*.o
 	ar rcs tests/lib$*.a tests/$*.o
 	rustc --target $(RUST_TARGET) -L tests/ -lour_code:$* runtime/start.rs -o tests/$*.run
 # clean up .o and .a files
-	rm -f tests/$*.o tests/lib$*.a
+	rm -f tests/$*.o tests/lib$*.a tests/lib$*.s
 
 
 # Change below to whatever might be helpful! 

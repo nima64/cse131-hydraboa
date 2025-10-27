@@ -9,6 +9,7 @@ use std::io::*;
 use std::mem;
 use std::panic;
 
+mod common;
 mod assembly;
 mod types;
 use assembly::*;
@@ -494,31 +495,6 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
 
 fn jit_code(instrs: &Vec<Instr>) -> i64 {
     jit_code_input(instrs, FLASE_TAGGED)
-}
-
-fn format_result(res: i64) -> String {
-    let tag = get_tag(res);
-    if tag == BOOL_TAG {
-        if res == TRUE_TAGGED {
-            return "true".to_string();
-        } else {
-            return "false".to_string();
-        }
-    }
-    return untag_number(res).to_string();
-}
-
-fn parse_input(input: &str) -> i64 {
-    let trimmed = input.trim();
-    let res = trimmed.parse::<i64>();
-    if let Ok(n) = res {
-        return tag_number(n);
-    }
-    match trimmed {
-        "true" => TRUE_TAGGED ,
-        "false" => FLASE_TAGGED ,
-        _ => FLASE_TAGGED,
-    }
 }
 
 fn main() -> std::io::Result<()> {
