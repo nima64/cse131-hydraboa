@@ -155,9 +155,11 @@ fn compile_expr_with_env_repl(
             if matches!(op, Op1::Add1) {
                 instrs.push(Instr::Mov(Reg::Rcx, tag_number(1)));
                 instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
+                instrs.push(Instr::Jo("overflow_error".to_string()))
             } else if matches!(op, Op1::Sub1) {
                 instrs.push(Instr::Mov(Reg::Rcx, tag_number(-1)));
                 instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
+                instrs.push(Instr::Jo("overflow_error".to_string()))
             } else {
                 panic!("Invalid op {:?}!", op);
             }
@@ -184,7 +186,7 @@ fn compile_expr_with_env_repl(
                     instrs.push(Instr::Test(Reg::Rdx, 1)); // Test bit 0
 
                     // If bit 0 is set, types differ -> error
-                    instrs.push(Instr::Jnz("snek_error".to_string()));
+                    instrs.push(Instr::Jnz("type_mismatch_error".to_string()));
 
                     // Types match, do comparison
                     instrs.push(Instr::Cmp(Reg::Rcx, Reg::Rax));
@@ -435,18 +437,6 @@ fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<I
     compile_expr_with_env_repl(e, 16, &HashMap::new(), replEnv, ctx)
 }
 
-pub extern "C" fn snek_error(errorcode: i64) {
-    match errorcode {
-        1 => {
-            eprintln!("cannot compare different types!");
-            std::process::exit(1);
-        }
-        _ => {
-            panic!("invalid error code {}!", errorcode);
-        }
-    }
-}
-
 fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
     let mut ops: dynasmrt::Assembler<dynasmrt::x64::X64Relocation> =
         dynasmrt::x64::Assembler::new().unwrap();
@@ -454,9 +444,13 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
     dynasm!(ops; .arch x64);
 
     let mut labels: HashMap<String, DynamicLabel> = HashMap::new();
-    let error = ops.new_dynamic_label();
-    labels.insert("snek_error".to_string(), error);
-    let c_func_ptr: extern "C" fn(i64) -> i64 = unsafe { mem::transmute(snek_error as *const ()) };
+    let error_type_mismatch = ops.new_dynamic_label();
+    let error_overflow = ops.new_dynamic_label();
+    let error_common = ops.new_dynamic_label();
+
+    labels.insert("type_mismatch_error".to_string(), error_type_mismatch);
+    labels.insert("overflow_error".to_string(), error_overflow);
+    let c_func_ptr: extern "C" fn(i64) -> i64 = unsafe { mem::transmute(common::snek_error as *const ()) };
 
     
     // Pre-create all labels
@@ -473,16 +467,15 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
 
     dynasm!(ops
         ; jmp ->done
-    );
-    dynasm!(ops
-        ; =>error
-        ; mov rax, QWORD c_func_ptr as i64 
-        ; mov rdi, 1 
-        ; call rax 
-        ; ret 
-    );
-
-    dynasm!(ops
+        ; =>error_overflow
+        ; mov rdi, 2
+        ; jmp =>error_common
+        ; =>error_type_mismatch
+        ; mov rdi, 1
+        ; =>error_common
+        ; mov rax, QWORD c_func_ptr as i64
+        ; call rax
+        ; ret
         ; ->done:
         ; ret
     );
@@ -582,8 +575,18 @@ section .text
 extern snek_error
 global our_code_starts_here
 our_code_starts_here:
-{}  
-ret
+{}
+jmp done
+overflow_error:
+  mov rdi, 2
+  jmp error_common
+type_mismatch_error:
+  mov rdi, 1
+error_common:
+  call snek_error
+  ret
+done:
+  ret
             ",
             result
         );

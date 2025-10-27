@@ -85,6 +85,7 @@ pub enum Instr {
     Je(String),           // je label - jump if equal
     Jz(String),           // jz label - jump if zero
     Jnz(String),          // jnz label - jump if not zero
+    Jo(String),           // jo label - jump if overflow
     Jmp(String),          // jmp label - unconditional jump
     Label(String),        // label: - assembly label
 }

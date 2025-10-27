@@ -17,9 +17,8 @@ extern "C" {
 }
 
 #[export_name = "\x01snek_error"]
-pub extern "C" fn snek_error(errorcode:i64){
-  eprintln!("an error occured {errorcode}");
-  std::process::exit(1);
+pub extern "C" fn snek_error_wrapper(errorcode: i64) {
+    snek_error(errorcode);
 }
 
 fn main() {
