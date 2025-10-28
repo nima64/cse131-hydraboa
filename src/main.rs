@@ -44,6 +44,12 @@ fn parse_expr(s: &Sexp) -> Expr {
                 [Sexp::Atom(S(op)), e] if op == "sub1" => {
                     Expr::UnOp(Op1::Sub1, Box::new(parse_expr(e)))
                 }
+                [Sexp::Atom(S(op)), e] if op == "isnum" => {
+                    Expr::UnOp(Op1::IsNum, Box::new(parse_expr(e)))
+                }
+                [Sexp::Atom(S(op)), e] if op == "isbool" => {
+                    Expr::UnOp(Op1::IsBool, Box::new(parse_expr(e)))
+                }
                 [Sexp::Atom(S(op)), e] if op == "loop" => Expr::Loop(Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "+" => Expr::BinOp(
@@ -152,16 +158,39 @@ fn compile_expr_with_env_repl(
         }
         Expr::UnOp(op, subexpr) => {
             let mut instrs = compile_expr_with_env_repl(subexpr, stack_depth, env, define_env, ctx);
-            if matches!(op, Op1::Add1) {
-                instrs.push(Instr::Mov(Reg::Rcx, tag_number(1)));
-                instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
-                instrs.push(Instr::Jo("overflow_error".to_string()))
-            } else if matches!(op, Op1::Sub1) {
-                instrs.push(Instr::Mov(Reg::Rcx, tag_number(-1)));
-                instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
-                instrs.push(Instr::Jo("overflow_error".to_string()))
-            } else {
-                panic!("Invalid op {:?}!", op);
+            match op {
+                Op1::Add1 => {
+                    instrs.push(Instr::Mov(Reg::Rcx, tag_number(1)));
+                    instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
+                    instrs.push(Instr::Jo("overflow_error".to_string()));
+                }
+                Op1::Sub1 => {
+                    instrs.push(Instr::Mov(Reg::Rcx, tag_number(-1)));
+                    instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
+                    instrs.push(Instr::Jo("overflow_error".to_string()));
+                }
+                Op1::IsNum => {
+                    // Check if tag bit (bit 0) is 0 (number)
+                    instrs.push(Instr::Test(Reg::Rax, 1)); // Test bit 0
+                    instrs.push(Instr::Mov(Reg::Rax, 0)); // Clear RAX
+                    instrs.push(Instr::SetEq(Reg::Rax)); // Set AL to 1 if zero flag is set (tag == 0)
+                    instrs.push(Instr::Shl(Reg::Rax, 1)); // Shift left to make room for tag
+                    instrs.push(Instr::Or(Reg::Rax, 1)); // Set tag bit to 1 (boolean)
+                }
+                Op1::IsBool => {
+                    // Check if tag bit (bit 0) is 1 (boolean)
+                    let label_id = ctx.label_counter;
+                    ctx.label_counter += 1;
+                    let skip_label = format!("isbool_skip_{}", label_id);
+
+                    instrs.push(Instr::Test(Reg::Rax, 1)); // Test bit 0
+                    instrs.push(Instr::Mov(Reg::Rax, 0)); // Clear RAX
+                    instrs.push(Instr::Jz(skip_label.clone())); // If zero (not bool), skip set
+                    instrs.push(Instr::Mov(Reg::Rax, 1)); // Set to 1 if bool
+                    instrs.push(Instr::Label(skip_label));
+                    instrs.push(Instr::Shl(Reg::Rax, 1)); // Shift left to make room for tag
+                    instrs.push(Instr::Or(Reg::Rax, 1)); // Set tag bit to 1 (boolean)
+                }
             }
             instrs
         }
@@ -196,13 +225,15 @@ fn compile_expr_with_env_repl(
                     instrs.push(Instr::Shl(Reg::Rax, 1));
                     instrs.push(Instr::Or(Reg::Rax, 1));
                 }
-                Op2::Less | Op2::Greater => {
+                Op2::Less | Op2::Greater | Op2::LessEqual | Op2::GreaterEqual => {
                     instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
                     instrs.push(Instr::Cmp(Reg::Rcx, Reg::Rax));
 
                     match op {
                         Op2::Less => instrs.push(Instr::SetL(Reg::Rax)),
                         Op2::Greater => instrs.push(Instr::SetG(Reg::Rax)),
+                        Op2::LessEqual => instrs.push(Instr::SetLE(Reg::Rax)),
+                        Op2::GreaterEqual => instrs.push(Instr::SetGE(Reg::Rax)),
                         _ => unreachable!(),
                     }
 
@@ -221,7 +252,10 @@ fn compile_expr_with_env_repl(
                 }
                 Op2::Times => {
                     instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
-                    instrs.push(Instr::iMul(Reg::Rax, Reg::Rcx));
+                    instrs.push(Instr::Sar(Reg::Rax, 1)); // untag rax by shifting right
+                    instrs.push(Instr::Sar(Reg::Rcx, 1)); // untag rcx by shifting right
+                    instrs.push(Instr::iMul(Reg::Rax, Reg::Rcx)); // multiply untagged * untagged
+                    instrs.push(Instr::Shl(Reg::Rax, 1)); // shift result left to tag it
                 }
                 _ => panic!("Invalid op {:?}!", op),
             }

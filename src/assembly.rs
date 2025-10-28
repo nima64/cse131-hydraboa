@@ -41,11 +41,20 @@ pub fn instr_to_string(instr: &Instr) -> String {
         Instr::SetG(reg) => {
             format!("setg {}", reg_to_byte_string(reg))
         }
+        Instr::SetLE(reg) => {
+            format!("setle {}", reg_to_byte_string(reg))
+        }
+        Instr::SetGE(reg) => {
+            format!("setge {}", reg_to_byte_string(reg))
+        }
         Instr::SetEq(reg) => {
             format!("sete {}", reg_to_byte_string(reg))
         }
         Instr::Shl(reg, val) => {
             format!("shl {}, {}", reg_to_string(reg), val)
+        }
+        Instr::Sar(reg, val) => {
+            format!("sar {}, {}", reg_to_string(reg), val)
         }
         Instr::Or(reg, val) => {
             format!("or {}, {}", reg_to_string(reg), val)
@@ -192,9 +201,23 @@ pub fn instr_to_asm(
             dynasm!(ops; .arch x64; setg Rb(r));
             dynasm!(ops; .arch x64; movzx Rq(r), Rb(r));
         }
+        Instr::SetLE(reg) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; setle Rb(r));
+            dynasm!(ops; .arch x64; movzx Rq(r), Rb(r));
+        }
+        Instr::SetGE(reg) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; setge Rb(r));
+            dynasm!(ops; .arch x64; movzx Rq(r), Rb(r));
+        }
         Instr::Shl(reg, val) => {
             let r = reg.to_num();
             dynasm!(ops; .arch x64; shl Rq(r), *val as i8);
+        }
+        Instr::Sar(reg, val) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; sar Rq(r), *val as i8);
         }
         Instr::Or(reg, val) => {
             let r = reg.to_num();

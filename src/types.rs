@@ -21,6 +21,8 @@ impl Reg {
 pub enum Op1 {
     Add1,
     Sub1,
+    IsNum,
+    IsBool,
 }
 
 #[derive(Debug, Clone)]
@@ -77,8 +79,11 @@ pub enum Instr {
     CmpImm(Reg, i64),     // cmp reg, immediate
     SetL(Reg),            // setl reg - set if less
     SetG(Reg),            // setg reg - set if greater
-    SetEq(Reg),            // setg reg - set if greater
+    SetLE(Reg),           // setle reg - set if less or equal
+    SetGE(Reg),           // setge reg - set if greater or equal
+    SetEq(Reg),           // sete reg - set if equal
     Shl(Reg, i32),        // shl reg, immediate - shift left
+    Sar(Reg, i32),        // sar reg, immediate - shift arithmetic right
     Or(Reg, i64),         // or reg, immediate - for setting bits
     Test(Reg, i64),       // test reg, immediate - for checking bits
     Jne(String),          // jne label - jump if not equal
