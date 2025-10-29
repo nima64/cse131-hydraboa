@@ -58,6 +58,20 @@ pub enum Expr {
     Loop(Box<Expr>),
     Break(Box<Expr>),
     Set(String, Box<Expr>),
+    FunCall(String, Vec<Expr>),
+}
+
+#[derive(Debug)]
+pub struct Defn {
+    pub name: String,
+    pub params: Vec<String>,
+    pub body: Box<Expr>,
+}
+
+#[derive(Debug)]
+pub struct Prog {
+    pub defns: Vec<Defn>,
+    pub main: Box<Expr>,
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +85,8 @@ pub enum Instr {
     MinusReg(Reg, Reg),
     MovReg(Reg, Reg),
     XorReg(Reg, Reg),
+    Push(Reg),            // push reg - push register onto stack
+    Pop(Reg),             // pop reg - pop from stack into register
     MovToStack(Reg, i32), // Register, stackdepth => mov [rsp - offset], register
     MovFromStack(Reg, i32), // mov register, [rsp - offset]
     MovDeref(Reg, Reg),   // mov dest_reg, [src_reg] - dereference src_reg and put in dest_reg

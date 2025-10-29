@@ -14,14 +14,17 @@ mod assembly;
 mod types;
 use assembly::*;
 use types::*;
+use types::{Defn, Prog};
 
 #[derive(Clone, Copy)] // Add Copy!
 struct CompileCtx {
     label_counter: i32,
     loop_depth: i32,
-    current_loop_id: i32, // current_loop_end: Option<String>
+    current_loop_id: i32,
+    max_depth: *mut i32, 
 }
 
+// fn parse_expr(s: &Sexp, func_names: &HashSet<String>) -> Expr {
 fn parse_expr(s: &Sexp) -> Expr {
     match s {
         Sexp::Atom(I(n)) => Expr::Number(tag_number(*n)),
@@ -127,10 +130,93 @@ fn parse_expr(s: &Sexp) -> Expr {
                     Box::new(parse_expr(else_expr)),
                 ),
 
+                // Function call: (<name> <expr>*)
+                [Sexp::Atom(S(name)), args @ ..] => {
+                    let parsed_args = args.iter().map(|arg| parse_expr(arg)).collect();
+                    Expr::FunCall(name.to_string(), parsed_args)
+                }
+
                 _ => panic!("parse error!"),
             }
         }
         _ => panic!("parse error"),
+    }
+}
+
+fn parse_defn(s: &Sexp) -> Defn {
+    match s {
+        Sexp::List(vec) => match &vec[..] {
+            [Sexp::Atom(S(keyword)), Sexp::List(signature), body] if keyword == "fun" => {
+                match &signature[..] {
+                    [Sexp::Atom(S(name)), params @ ..] => {
+                        let param_names: Vec<String> = params
+                            .iter()
+                            .map(|p| match p {
+                                Sexp::Atom(S(param_name)) => param_name.to_string(),
+                                _ => panic!("Invalid: function parameter must be an identifier"),
+                            })
+                            .collect();
+
+                        Defn {
+                            name: name.to_string(),
+                            params: param_names,
+                            body: Box::new(parse_expr(body)),
+                        }
+                    }
+                    _ => panic!("Invalid: function definition must have a name"),
+                }
+            }
+            _ => panic!("Invalid: expected function definition (fun ...)"),
+        },
+        _ => panic!("Invalid: function definition must be a list"),
+    }
+}
+
+fn parse_prog(s: &Sexp) -> Prog {
+    match s {
+        Sexp::List(items) => {
+            let mut defns = Vec::new();
+            let mut main_expr = None;
+
+            for item in items {
+                match item {
+                    Sexp::List(inner) => {
+                        if let Some(Sexp::Atom(S(keyword))) = inner.first() {
+                            if keyword == "fun" {
+                                defns.push(parse_defn(item));
+                                continue;
+                            }
+                        }
+                        // If we get here, it's not a function definition, so it's the main expr
+                        if main_expr.is_none() {
+                            main_expr = Some(parse_expr(item));
+                        } else {
+                            panic!("Invalid: only one main expression allowed");
+                        }
+                    }
+                    _ => {
+                        // Any other expression (atoms, etc.) is the main expression
+                        if main_expr.is_none() {
+                            main_expr = Some(parse_expr(item));
+                        } else {
+                            panic!("Invalid: only one main expression allowed");
+                        }
+                    }
+                }
+            }
+
+            Prog {
+                defns,
+                main: Box::new(main_expr.unwrap_or_else(|| panic!("Invalid: program must have a main expression"))),
+            }
+        }
+        _ => {
+            // Single expression, no function definitions
+            Prog {
+                defns: Vec::new(),
+                main: Box::new(parse_expr(s)),
+            }
+        }
     }
 }
 
@@ -141,6 +227,13 @@ fn compile_expr_with_env_repl(
     define_env: &mut HashMap<String, Box<i64>>,
     mut ctx: CompileCtx, // Pass by value (copied each call)
 ) -> Vec<Instr> {
+    // Track max depth (unsafe to dereference raw pointer)
+    unsafe {
+        if stack_depth > *ctx.max_depth {
+            *ctx.max_depth = stack_depth;
+        }
+    }
+
     match e {
         Expr::Number(n) => vec![Instr::Mov(Reg::Rax, *n)],
         Expr::Id(name) => {
@@ -398,7 +491,7 @@ fn compile_expr_with_env_repl(
         Expr::If(cond, then_expr, else_expr) => {
             let mut instrs = vec![];
             let label_id = ctx.label_counter;
-            ctx.label_counter += 1; 
+            ctx.label_counter += 1;
 
             let else_label = format!("else_{}", label_id);
             let end_label = format!("end_if_{}", label_id);
@@ -442,31 +535,68 @@ fn compile_expr_with_env_repl(
 
             instrs
         }
+        Expr::FunCall(name, args) => {
+            // Stub: compile function call
+            // TODO: Implement function call compilation
+            // For now, just panic with a helpful message
+            panic!("Function calls not yet implemented: {}", name);
+        }
     }
 }
 
 fn compile_expr(e: &Expr) -> Vec<Instr> {
-    let stack_depth = 16;
+    let base_input_slot = 16;                // makespace for rdi
     let mut env = HashMap::new();
-    //mov input into stack
-    let mut prepend_instrs = vec![];
-    prepend_instrs.push(Instr::MovToStack(Reg::Rdi, stack_depth));
-    env.insert("input".to_string(), stack_depth);
-    let ctx = CompileCtx {
+    env.insert("input".to_string(), base_input_slot);
+
+    let mut max_depth = base_input_slot;     // at least the input slot exists
+
+    let mut ctx = CompileCtx {
         label_counter: 0,
         loop_depth: 0,
         current_loop_id: -1,
+        max_depth: &mut max_depth as *mut i32,
     };
-    let instrs = compile_expr_with_env_repl(e, stack_depth + 8, &env, &mut HashMap::new(), ctx);
-    prepend_instrs.extend(instrs);
-    prepend_instrs
+
+    // First temp will be at 24 (= 16 + 8)
+    let body_instrs = compile_expr_with_env_repl(
+        e,
+        base_input_slot + 8,
+        &env,
+        &mut HashMap::new(),
+        ctx,
+    );
+
+    // finalize frame size (multiple of 16)
+    let frame_size: i32 = ((max_depth + 15) / 16) * 16;
+
+    // Prologue + initialize input slot, then body, then epilogue
+    let mut instrs = Vec::new();
+    instrs.push(Instr::Push(Reg::Rbp));                // push rbp
+    instrs.push(Instr::MovReg(Reg::Rbp, Reg::Rsp));    // mov rbp, rsp
+    instrs.push(Instr::Sub(Reg::Rsp, frame_size));     // sub rsp, frame_size (16-byte aligned)
+
+    // store arg: input (rdi) at [rbp-16]
+    instrs.push(Instr::MovToStack(Reg::Rdi, base_input_slot));
+
+    instrs.extend(body_instrs);
+
+    // Epilogue
+    instrs.push(Instr::MovReg(Reg::Rsp, Reg::Rbp));    // mov rsp, rbp
+    instrs.push(Instr::Pop(Reg::Rbp));                 // pop rbp
+    // (RET comes from your jit trampoline / AOT wrapper)
+
+    instrs
+
 }
 
 fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<Instr> {
+    let mut max_depth = 0;
     let ctx = CompileCtx {
         label_counter: 0,
         loop_depth: 0,
         current_loop_id: -1,
+        max_depth: &mut max_depth as *mut i32,
     };
     compile_expr_with_env_repl(e, 16, &HashMap::new(), replEnv, ctx)
 }

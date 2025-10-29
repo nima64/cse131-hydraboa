@@ -22,9 +22,11 @@ pub fn instr_to_string(instr: &Instr) -> String {
         Instr::XorReg(reg1, reg2) => {
             format!("xor {}, {}", reg_to_string(reg1), reg_to_string(reg2))
         }
-        Instr::MovToStack(reg, offset) => format!("mov [rsp - {}], {}", offset, reg_to_string(reg)),
+        Instr::Push(reg) => format!("push {}", reg_to_string(reg)),
+        Instr::Pop(reg) => format!("pop {}", reg_to_string(reg)),
+        Instr::MovToStack(reg, offset) => format!("mov [rbp - {}], {}", offset, reg_to_string(reg)),
         Instr::MovFromStack(reg, offset) => {
-            format!("mov {}, [rsp - {}]", reg_to_string(reg), offset)
+            format!("mov {}, [rbp - {}]", reg_to_string(reg), offset)
         }
         Instr::MovDeref(dest, src) => {
             format!("mov {}, [{}]", reg_to_string(dest), reg_to_string(src))
@@ -163,13 +165,21 @@ pub fn instr_to_asm(
             let r2 = reg2.to_num();
             dynasm!(ops; .arch x64; xor Rq(r1), Rq(r2));
         }
+        Instr::Push(reg) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; push Rq(r));
+        }
+        Instr::Pop(reg) => {
+            let r = reg.to_num();
+            dynasm!(ops; .arch x64; pop Rq(r));
+        }
         Instr::MovToStack(reg, offset) => {
             let r = reg.to_num();
-            dynasm!(ops; .arch x64; mov [rsp - *offset], Rq(r));
+            dynasm!(ops; .arch x64; mov [rbp - *offset], Rq(r));
         }
         Instr::MovFromStack(reg, offset) => {
             let r: u8 = reg.to_num();
-            dynasm!(ops; .arch x64; mov Rq(r), [rsp - *offset]);
+            dynasm!(ops; .arch x64; mov Rq(r), [rbp - *offset]);
         }
         Instr::MovDeref(dest, src) => {
             let d = dest.to_num();
