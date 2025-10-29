@@ -85,6 +85,12 @@ pub fn instr_to_string(instr: &Instr) -> String {
         Instr::Jmp(label) => {
             format!("jmp {}", label)
         }
+        Instr::Call(label) => {
+            format!("call {}", label)
+        }
+        Instr::Ret => {
+            format!("ret")
+        }
         Instr::Label(label) => {
             format!("{}:", label)
         }
@@ -267,6 +273,13 @@ pub fn instr_to_asm(
         Instr::Jmp(label_name) => {
             let lbl = labels.get(label_name).unwrap();
             dynasm!(ops; .arch x64; jmp => *lbl);
+        }
+        Instr::Call(label_name) => {
+            let lbl = labels.get(label_name).unwrap();
+            dynasm!(ops; .arch x64; call => *lbl);
+        }
+        Instr::Ret => {
+            dynasm!(ops; .arch x64; ret);
         }
         Instr::Label(label_name) => {
             let lbl = labels.get(label_name).unwrap();

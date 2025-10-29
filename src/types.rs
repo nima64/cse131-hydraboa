@@ -108,6 +108,8 @@ pub enum Instr {
     Jnz(String),          // jnz label - jump if not zero
     Jo(String),           // jo label - jump if overflow
     Jmp(String),          // jmp label - unconditional jump
+    Call(String),         // call label - call function
+    Ret,                  // ret - return from function
     Label(String),        // label: - assembly label
 }
 

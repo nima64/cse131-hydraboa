@@ -9,8 +9,8 @@ use std::io::*;
 use std::mem;
 use std::panic;
 
-mod common;
 mod assembly;
+mod common;
 mod types;
 use assembly::*;
 use types::*;
@@ -21,7 +21,7 @@ struct CompileCtx {
     label_counter: i32,
     loop_depth: i32,
     current_loop_id: i32,
-    max_depth: *mut i32, 
+    max_depth: *mut i32,
 }
 
 // fn parse_expr(s: &Sexp, func_names: &HashSet<String>) -> Expr {
@@ -207,7 +207,10 @@ fn parse_prog(s: &Sexp) -> Prog {
 
             Prog {
                 defns,
-                main: Box::new(main_expr.unwrap_or_else(|| panic!("Invalid: program must have a main expression"))),
+                main: Box::new(
+                    main_expr
+                        .unwrap_or_else(|| panic!("Invalid: program must have a main expression")),
+                ),
             }
         }
         _ => {
@@ -225,6 +228,7 @@ fn compile_expr_with_env_repl(
     stack_depth: i32,
     env: &HashMap<String, i32>,
     define_env: &mut HashMap<String, Box<i64>>,
+    defns: &Vec<Defn>,
     mut ctx: CompileCtx, // Pass by value (copied each call)
 ) -> Vec<Instr> {
     // Track max depth (unsafe to dereference raw pointer)
@@ -244,13 +248,13 @@ fn compile_expr_with_env_repl(
                 // If not in env, check replEnv for defined variables
                 println!("value held in {}: {}", name, untag_number(**boxed_value));
                 vec![Instr::Mov(Reg::Rax, **boxed_value)]
-                
             } else {
                 panic!("Unbound variable identifier {}", name)
             }
         }
         Expr::UnOp(op, subexpr) => {
-            let mut instrs = compile_expr_with_env_repl(subexpr, stack_depth, env, define_env, ctx);
+            let mut instrs =
+                compile_expr_with_env_repl(subexpr, stack_depth, env, define_env, defns, ctx);
             match op {
                 Op1::Add1 => {
                     instrs.push(Instr::Mov(Reg::Rcx, tag_number(1)));
@@ -288,13 +292,15 @@ fn compile_expr_with_env_repl(
             instrs
         }
         Expr::BinOp(op, e1, e2) => {
-            let mut instrs = compile_expr_with_env_repl(e1, stack_depth, env, define_env, ctx);
+            let mut instrs =
+                compile_expr_with_env_repl(e1, stack_depth, env, define_env, defns, ctx);
             instrs.push(Instr::MovToStack(Reg::Rax, stack_depth));
             instrs.extend(compile_expr_with_env_repl(
                 e2,
                 stack_depth + 8,
                 env,
                 define_env,
+                defns,
                 ctx,
             ));
             match op {
@@ -369,6 +375,7 @@ fn compile_expr_with_env_repl(
                     current_depth,
                     &new_env,
                     define_env,
+                    defns,
                     ctx,
                 ));
                 instrs.push(Instr::MovToStack(Reg::Rax, current_depth));
@@ -382,17 +389,18 @@ fn compile_expr_with_env_repl(
                 current_depth,
                 &new_env,
                 define_env,
+                defns,
                 ctx,
             ));
             instrs
         }
         Expr::Define(name, e) => {
-            let instrs = compile_expr_with_env_repl(e, stack_depth, env, define_env, ctx);
+            let instrs = compile_expr_with_env_repl(e, stack_depth, env, define_env, defns, ctx);
             let val = jit_code(&instrs);
 
             let boxed_val = Box::new(val);
             if !define_env.contains_key(name) {
-                define_env.insert(name.clone(), boxed_val); 
+                define_env.insert(name.clone(), boxed_val);
             } else {
                 println!("Duplicate binding");
             }
@@ -414,6 +422,7 @@ fn compile_expr_with_env_repl(
                     stack_depth,
                     env,
                     define_env,
+                    defns,
                     ctx,
                 ));
             }
@@ -438,6 +447,7 @@ fn compile_expr_with_env_repl(
                 stack_depth,
                 env,
                 define_env,
+                defns,
                 loop_ctx,
             ));
             instrs.push(Instr::Jmp(loop_label.clone()));
@@ -454,6 +464,7 @@ fn compile_expr_with_env_repl(
                 stack_depth,
                 env,
                 define_env,
+                defns,
                 ctx,
             ));
             let loop_end_label = format!("endloop_{}", ctx.current_loop_id);
@@ -474,6 +485,7 @@ fn compile_expr_with_env_repl(
                 stack_depth,
                 env,
                 define_env,
+                defns,
                 ctx,
             ));
 
@@ -501,6 +513,7 @@ fn compile_expr_with_env_repl(
                 stack_depth,
                 env,
                 define_env,
+                defns,
                 ctx,
             ));
 
@@ -514,6 +527,7 @@ fn compile_expr_with_env_repl(
                 stack_depth,
                 env,
                 define_env,
+                defns,
                 ctx,
             ));
 
@@ -528,6 +542,7 @@ fn compile_expr_with_env_repl(
                 stack_depth,
                 env,
                 define_env,
+                defns,
                 ctx,
             ));
 
@@ -536,20 +551,153 @@ fn compile_expr_with_env_repl(
             instrs
         }
         Expr::FunCall(name, args) => {
-            // Stub: compile function call
-            // TODO: Implement function call compilation
-            // For now, just panic with a helpful message
-            panic!("Function calls not yet implemented: {}", name);
+            // Find the function definition
+            let defn = defns.iter().find(|d| &d.name == name);
+
+            if defn.is_none() {
+                panic!("Undefined function: {}", name);
+            }
+
+            let defn = defn.unwrap();
+
+            // Check argument count matches
+            if args.len() != defn.params.len() {
+                panic!(
+                    "Function {} expects {} arguments, got {}",
+                    name,
+                    defn.params.len(),
+                    args.len()
+                );
+            }
+
+            let mut instrs = Vec::new();
+
+            for arg in args {
+                instrs.extend(compile_expr_with_env_repl(
+                    arg, stack_depth, env,
+                    define_env, defns, ctx,
+                ));
+                instrs.push(Instr::Push(Reg::Rax));
+            }
+
+            instrs.push(Instr::Call(name.clone()));
+
+            // Result is now in RAX
+            instrs
         }
     }
 }
 
-fn compile_expr(e: &Expr) -> Vec<Instr> {
-    let base_input_slot = 16;                // makespace for rdi
+fn compile_prog(prog: &Prog) -> Vec<Instr> {
+    let mut instrs = Vec::new();
+
+    instrs.push(Instr::Jmp("main_start".to_string()));
+
+    for defn in &prog.defns {
+        println!("pushing {}", defn.name.clone());
+        instrs.push(Instr::Label(defn.name.clone()));
+        instrs.extend(compile_defn(defn, &prog.defns));
+        instrs.push(Instr::Ret);
+    }
+
+    instrs.push(Instr::Label("main_start".to_string()));
+
+    let base_input_slot = 16;
     let mut env = HashMap::new();
     env.insert("input".to_string(), base_input_slot);
 
-    let mut max_depth = base_input_slot;     // at least the input slot exists
+    let mut max_depth = base_input_slot;
+
+    let mut ctx = CompileCtx {
+        label_counter: 0,
+        loop_depth: 0,
+        current_loop_id: -1,
+        max_depth: &mut max_depth as *mut i32,
+    };
+
+    let body_instrs = compile_expr_with_env_repl(
+        &prog.main,
+        base_input_slot + 8,
+        &env,
+        &mut HashMap::new(),
+        &prog.defns,
+        ctx,
+    );
+
+    let frame_size: i32 = ((max_depth + 15) / 16) * 16;
+
+    // Prologue
+    instrs.push(Instr::Push(Reg::Rbp));
+    instrs.push(Instr::MovReg(Reg::Rbp, Reg::Rsp));
+    instrs.push(Instr::Sub(Reg::Rsp, frame_size));
+
+    instrs.push(Instr::MovToStack(Reg::Rdi, base_input_slot));
+    instrs.extend(body_instrs);
+
+    // Epilogue
+    instrs.push(Instr::MovReg(Reg::Rsp, Reg::Rbp));
+    instrs.push(Instr::Pop(Reg::Rbp));
+
+    instrs
+}
+
+fn compile_defn(defn: &Defn, defns: &Vec<Defn>) -> Vec<Instr> {
+    let mut current_depth = 16; // makespace for rdi
+    let mut max_depth = current_depth; // at least the input slot exists
+    let mut env = HashMap::new();
+    env.insert("input".to_string(), current_depth);
+
+    //assume args are already allocated
+    for arg_name in &defn.params {
+        env.insert(arg_name.clone(), -current_depth);
+        current_depth += 8;
+    }
+
+    let mut ctx = CompileCtx {
+        label_counter: 0,
+        loop_depth: 0,
+        current_loop_id: -1,
+        max_depth: &mut max_depth as *mut i32,
+    };
+
+    // First temp will be at 24 (= 16 + 8)
+    let body_instrs = compile_expr_with_env_repl(
+        &defn.body,
+        current_depth + 8,
+        &env,
+        &mut HashMap::new(),
+        defns,
+        ctx,
+    );
+
+    // finalize frame size (multiple of 16)
+    let frame_size: i32 = ((max_depth + 15) / 16) * 16; //rounds to the mutiple of 16
+
+    // Prologue + initialize input slot, then body, then epilogue
+    let mut instrs = Vec::new();
+    instrs.push(Instr::Push(Reg::Rbp));
+    instrs.push(Instr::MovReg(Reg::Rbp, Reg::Rsp));
+    instrs.push(Instr::Sub(Reg::Rsp, frame_size)); // sub rsp, frame_size (16-byte aligned)
+
+    // store arg: input (rdi) at [rbp-16]
+    instrs.push(Instr::MovToStack(Reg::Rdi, current_depth));
+
+    instrs.extend(body_instrs);
+
+    // Epilogue
+    instrs.push(Instr::MovReg(Reg::Rsp, Reg::Rbp)); // mov rsp, rbp
+    instrs.push(Instr::Pop(Reg::Rbp)); // pop rbp
+                                       // (RET comes from your jit trampoline / AOT wrapper)
+
+    instrs
+}
+
+fn compile_expr(e: &Expr) -> Vec<Instr> {
+    let base_input_slot = 16; // makespace for rdi
+    let mut env = HashMap::new();
+    env.insert("input".to_string(), base_input_slot);
+
+    let mut max_depth = base_input_slot; // at least the input slot exists
 
     let mut ctx = CompileCtx {
         label_counter: 0,
@@ -564,17 +712,18 @@ fn compile_expr(e: &Expr) -> Vec<Instr> {
         base_input_slot + 8,
         &env,
         &mut HashMap::new(),
+        &vec![],
         ctx,
     );
 
     // finalize frame size (multiple of 16)
-    let frame_size: i32 = ((max_depth + 15) / 16) * 16;
+    let frame_size: i32 = ((max_depth + 15) / 16) * 16; //rounds to the mutiple of 16
 
     // Prologue + initialize input slot, then body, then epilogue
     let mut instrs = Vec::new();
-    instrs.push(Instr::Push(Reg::Rbp));                // push rbp
-    instrs.push(Instr::MovReg(Reg::Rbp, Reg::Rsp));    // mov rbp, rsp
-    instrs.push(Instr::Sub(Reg::Rsp, frame_size));     // sub rsp, frame_size (16-byte aligned)
+    instrs.push(Instr::Push(Reg::Rbp));
+    instrs.push(Instr::MovReg(Reg::Rbp, Reg::Rsp));
+    instrs.push(Instr::Sub(Reg::Rsp, frame_size)); // sub rsp, frame_size (16-byte aligned)
 
     // store arg: input (rdi) at [rbp-16]
     instrs.push(Instr::MovToStack(Reg::Rdi, base_input_slot));
@@ -582,12 +731,11 @@ fn compile_expr(e: &Expr) -> Vec<Instr> {
     instrs.extend(body_instrs);
 
     // Epilogue
-    instrs.push(Instr::MovReg(Reg::Rsp, Reg::Rbp));    // mov rsp, rbp
-    instrs.push(Instr::Pop(Reg::Rbp));                 // pop rbp
-    // (RET comes from your jit trampoline / AOT wrapper)
+    instrs.push(Instr::MovReg(Reg::Rsp, Reg::Rbp)); // mov rsp, rbp
+    instrs.push(Instr::Pop(Reg::Rbp)); // pop rbp
+                                       // (RET comes from your jit trampoline / AOT wrapper)
 
     instrs
-
 }
 
 fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<Instr> {
@@ -598,7 +746,8 @@ fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<I
         current_loop_id: -1,
         max_depth: &mut max_depth as *mut i32,
     };
-    compile_expr_with_env_repl(e, 16, &HashMap::new(), replEnv, ctx)
+    // let temp = Vec<Defn>![];
+    compile_expr_with_env_repl(e, 16, &HashMap::new(), replEnv, &vec![], ctx)
 }
 
 fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
@@ -614,20 +763,19 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
 
     labels.insert("type_mismatch_error".to_string(), error_type_mismatch);
     labels.insert("overflow_error".to_string(), error_overflow);
-    let c_func_ptr: extern "C" fn(i64) -> i64 = unsafe { mem::transmute(common::snek_error as *const ()) };
+    let c_func_ptr: extern "C" fn(i64) -> i64 =
+        unsafe { mem::transmute(common::snek_error as *const ()) };
 
-    
     // Pre-create all labels
     for instr in instrs {
         if let Instr::Label(name) = instr {
             labels.insert(name.clone(), ops.new_dynamic_label());
         }
     }
-    
+
     for instr in instrs {
         instr_to_asm(instr, &mut ops, &labels);
     }
-
 
     dynasm!(ops
         ; jmp ->done
@@ -672,8 +820,11 @@ fn main() -> std::io::Result<()> {
         let mut in_contents = String::new();
         in_file.read_to_string(&mut in_contents)?;
 
-        let expr: Expr = parse_expr(&parse(&in_contents).unwrap());
-        let instrs = compile_expr(&expr);
+        // Wrap in parentheses to create a program
+        in_contents = format!("({})", in_contents);
+        let sexpr = parse(&in_contents).unwrap();
+        let prog = parse_prog(&sexpr);
+        let instrs = compile_prog(&prog);
 
         let result = jit_code_input(&instrs, input);
         println!("{}", format_result(result));
@@ -729,8 +880,11 @@ fn main() -> std::io::Result<()> {
         let mut in_file = File::open(in_name)?;
         let mut in_contents = String::new();
         in_file.read_to_string(&mut in_contents)?;
-        let expr = parse_expr(&parse(&in_contents).unwrap());
-        let instrs = compile_expr(&expr);
+        in_contents = format!("({})", in_contents);
+        // parse_prog();
+        let sexpr = parse(&in_contents).unwrap();
+        let prog = parse_prog(&sexpr);
+        let instrs = compile_prog(&prog);
         let result = instrs_to_string(&instrs);
 
         let asm_program = format!(

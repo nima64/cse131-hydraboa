@@ -7,6 +7,7 @@ UNAME := $(shell uname)
 # ifeq ($(UNAME), Linux)
 ARCH := elf64
 RUST_TARGET := x86_64-unknown-linux-gnu
+export RUST_BACKTRACE=1
 # endif
 # ifeq ($(UNAME), Darwin)
 # ARCH := macho64

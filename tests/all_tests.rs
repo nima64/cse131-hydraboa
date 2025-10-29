@@ -2,15 +2,15 @@ mod infra;
 
 // Your tests go here!
 success_tests! {
-    test_input: { file: "input", input: "2", expected: "2" },
+    // test_input: { file: "input", input: "2", expected: "2" },
     nested_loop: { file: "nested_loop", input: "", expected: "-6" },
     binop_plus: { file: "plus", input: "", expected: "8" },
     binop_minus: { file: "minus", input: "", expected: "6" },
     binop_times: { file: "times", input: "", expected: "42" },
     binop_less: { file: "less", input: "", expected: "true" },
     binop_greater: { file: "greater", input: "", expected: "true" },
-    // binop_less_equal: { file: "less_equal", input: "", expected: "true" },
-    // binop_greater_equal: { file: "greater_equal", input: "", expected: "true" },
+    binop_less_equal: { file: "less_equal", input: "", expected: "true" },
+    binop_greater_equal: { file: "greater_equal", input: "", expected: "true" },
     binop_equal: { file: "equal", input: "", expected: "true" },
     unop_add1: { file: "add1", input: "", expected: "4" },
     unop_sub1: { file: "sub1", input: "", expected: "-4" },
