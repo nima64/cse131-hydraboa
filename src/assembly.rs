@@ -98,11 +98,21 @@ pub fn instr_to_string(instr: &Instr) -> String {
 }
 
 pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
-    instrs
-        .iter()
-        .map(instr_to_string)
-        .collect::<Vec<String>>()
-        .join("\n")
+    let mut result = String::new();
+    //space intrs except labels
+    for instr in instrs {
+        match instr {
+            Instr::Label(label) => {
+            }
+            _ => {
+                result+="  ";
+            }
+
+        }
+        result+=&instr_to_string(instr);
+        result +="\n";
+    }
+    result
 }
 
 fn reg_to_string(reg: &Reg) -> &str {
