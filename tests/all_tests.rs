@@ -18,9 +18,9 @@ success_tests! {
 }
 
 runtime_error_tests! {
-    integer_overflow_add1: { file: "overflow_add1", input: "4611686018427387903", expected: "integer overflow" },
-    integer_overflow_sub1: { file: "overflow_sub1", input: "-4611686018427387904", expected: "integer overflow" },
-    // test_overflow_error: { file: "overflow", expected: "overflow" },
+    integer_overflow_add1: { file: "integer_overflow_add1", input: "4611686018427387903", expected: "integer overflow" },
+    integer_overflow_sub1: { file: "integer_overflow_sub1", input: "-4611686018427387904", expected: "integer overflow" },
+    integer_overflow_mul: { file: "integer_overflow_mul", input: "2", expected: "integer overflow" },
 }
 
 static_error_tests! {

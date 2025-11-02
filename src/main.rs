@@ -27,7 +27,12 @@ struct CompileCtx {
 // fn parse_expr(s: &Sexp, func_names: &HashSet<String>) -> Expr {
 fn parse_expr(s: &Sexp) -> Expr {
     match s {
-        Sexp::Atom(I(n)) => Expr::Number(tag_number(*n)),
+        Sexp::Atom(I(n)) => {
+            if !(*n >= -2_i64.pow(62) && *n <= 2_i64.pow(62)-1){
+                panic!("not a valid number must be an integer between -2^62 and 2^62-1");
+            }
+            Expr::Number(tag_number(*n))
+        },
         Sexp::Atom(S(name)) => {
             //
             /* Check is boolean */
@@ -275,7 +280,6 @@ fn compile_expr_with_env_repl(
                     instrs.push(Instr::Or(Reg::Rax, 1)); // Set tag bit to 1 (boolean)
                 }
                 Op1::IsBool => {
-                    // Check if tag bit (bit 0) is 1 (boolean)
                     let label_id = ctx.label_counter;
                     ctx.label_counter += 1;
                     let skip_label = format!("isbool_skip_{}", label_id);
@@ -295,6 +299,7 @@ fn compile_expr_with_env_repl(
             let mut instrs =
                 compile_expr_with_env_repl(e1, stack_depth, env, define_env, defns, ctx);
             instrs.push(Instr::MovToStack(Reg::Rax, stack_depth));
+            // e2 is on rax and e1 is on the stack
             instrs.extend(compile_expr_with_env_repl(
                 e2,
                 stack_depth + 8,
@@ -312,7 +317,6 @@ fn compile_expr_with_env_repl(
                     instrs.push(Instr::MovReg(Reg::Rdx, Reg::Rcx)); // Copy e1 to RDX
                     instrs.push(Instr::XorReg(Reg::Rdx, Reg::Rax)); // XOR e1 with e2
                     instrs.push(Instr::Test(Reg::Rdx, 1)); // Test bit 0
-
                     // If bit 0 is set, types differ -> error
                     instrs.push(Instr::Jnz("type_mismatch_error".to_string()));
 
@@ -326,6 +330,12 @@ fn compile_expr_with_env_repl(
                 }
                 Op2::Less | Op2::Greater | Op2::LessEqual | Op2::GreaterEqual => {
                     instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
+                    // Type check: both must be same type
+                    instrs.push(Instr::MovReg(Reg::Rdx, Reg::Rcx)); // Copy e1 to RDX
+                    instrs.push(Instr::XorReg(Reg::Rdx, Reg::Rax)); // XOR e1 with e2
+                    instrs.push(Instr::Test(Reg::Rdx, 1)); // Test bit 0
+                    instrs.push(Instr::Jnz("type_mismatch_error".to_string()));
+
                     instrs.push(Instr::Cmp(Reg::Rcx, Reg::Rax));
 
                     match op {
@@ -342,19 +352,40 @@ fn compile_expr_with_env_repl(
                 }
                 Op2::Plus => {
                     instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
+                    // type check 
+                    instrs.push(Instr::Test(Reg::Rcx, 1));// AND with 1 to check LSB and see if its 1 aka BOOL 
+                    instrs.push(Instr::Jnz("type_error_arithmetic".to_string())); // jump to error if it is boolean 
+                    instrs.push(Instr::Test(Reg::Rax, 1));
+                    instrs.push(Instr::Jnz("type_error_arithmetic".to_string())); 
+                    // end type check 
+
                     instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
                 }
                 Op2::Minus => {
                     instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
+                    // type check 
+                    instrs.push(Instr::Test(Reg::Rcx, 1));// AND with 1 to check LSB and see if its 1 aka BOOL 
+                    instrs.push(Instr::Jnz("type_error_arithmetic".to_string())); // jump to error if it is boolean 
+                    instrs.push(Instr::Test(Reg::Rax, 1));
+                    instrs.push(Instr::Jnz("type_error_arithmetic".to_string())); 
+                    // end type check 
                     instrs.push(Instr::MinusReg(Reg::Rcx, Reg::Rax));
                     instrs.push(Instr::MovReg(Reg::Rax, Reg::Rcx));
                 }
                 Op2::Times => {
                     instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
+                    // type check 
+                    instrs.push(Instr::Test(Reg::Rcx, 1));// AND with 1 to check LSB and see if its 1 aka BOOL 
+                    instrs.push(Instr::Jnz("type_error_arithmetic".to_string())); // jump to error if it is boolean 
+                    instrs.push(Instr::Test(Reg::Rax, 1));
+                    instrs.push(Instr::Jnz("type_error_arithmetic".to_string())); 
+                    // end type check 
                     instrs.push(Instr::Sar(Reg::Rax, 1)); // untag rax by shifting right
                     instrs.push(Instr::Sar(Reg::Rcx, 1)); // untag rcx by shifting right
                     instrs.push(Instr::iMul(Reg::Rax, Reg::Rcx)); // multiply untagged * untagged
+                    instrs.push(Instr::Jo("overflow_error".to_string()));
                     instrs.push(Instr::Shl(Reg::Rax, 1)); // shift result left to tag it
+                    instrs.push(Instr::Jo("overflow_error".to_string()));
                 }
                 _ => panic!("Invalid op {:?}!", op),
             }
@@ -759,10 +790,12 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
     let mut labels: HashMap<String, DynamicLabel> = HashMap::new();
     let error_type_mismatch = ops.new_dynamic_label();
     let error_overflow = ops.new_dynamic_label();
+    let error_arithmetic = ops.new_dynamic_label();
     let error_common = ops.new_dynamic_label();
 
     labels.insert("type_mismatch_error".to_string(), error_type_mismatch);
     labels.insert("overflow_error".to_string(), error_overflow);
+    labels.insert("type_error_arithmetic".to_string(), error_arithmetic);
     let c_func_ptr: extern "C" fn(i64) -> i64 =
         unsafe { mem::transmute(common::snek_error as *const ()) };
 
@@ -784,6 +817,9 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
         ; jmp =>error_common
         ; =>error_type_mismatch
         ; mov rdi, 1
+        ; jmp =>error_common
+        ; =>error_arithmetic
+        ; mov rdi, 3
         ; =>error_common
         ; mov rax, QWORD c_func_ptr as i64
         ; call rax
@@ -900,6 +936,9 @@ overflow_error:
   jmp error_common
 type_mismatch_error:
   mov rdi, 1
+  jmp error_common
+type_error_arithmetic:
+  mov rdi, 3
 error_common:
   call snek_error
   ret

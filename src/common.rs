@@ -58,6 +58,10 @@ pub extern "C" fn snek_error(errorcode: i64) {
             eprintln!("integer overflow");
             std::process::exit(1);
         }
+        3 => {
+            eprintln!("cannot do arithmetic on non integers");
+            std::process::exit(1);
+        }
         _ => {
             eprintln!("invalid error code {}!", errorcode);
             std::process::exit(1);
