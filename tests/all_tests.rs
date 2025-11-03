@@ -26,6 +26,8 @@ runtime_error_tests! {
     integer_overflow_sub1: { file: "integer_overflow_sub1", input: "-4611686018427387904", expected: "integer overflow" },
     integer_overflow_mul: { file: "integer_overflow_mul", input: "2", expected: "integer overflow" },
     integer_overflow_mul_negative: { file: "integer_overflow_mul_negative", input: "2", expected: "integer overflow" },
+    integer_overflow_plus: { file: "integer_overflow_plus", input: "", expected: "integer overflow" },
+    integer_overflow_minus: { file: "integer_overflow_minus", input: "", expected: "integer overflow" },
 }
 
 static_error_tests! {
