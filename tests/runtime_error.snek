@@ -1,0 +1,6 @@
+(let ((a true) (b false) (c 5))
+(if (isbool a)
+(if (= a b)
+0
+(let ((d (if (isnum c) (add1 c) 99))) d))
+42))

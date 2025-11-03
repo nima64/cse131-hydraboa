@@ -68,3 +68,8 @@ pub extern "C" fn snek_error(errorcode: i64) {
         }
     }
 }
+
+pub extern "C" fn print_fun(val: i64) -> i64 {
+    println!("{}", format_result(val));
+    val
+}

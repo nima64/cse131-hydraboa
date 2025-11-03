@@ -99,7 +99,7 @@ pub fn instr_to_string(instr: &Instr) -> String {
 
 pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
     let mut result = String::new();
-    //space intrs except labels
+    let mut i = 0;
     for instr in instrs {
         match instr {
             Instr::Label(label) => {
@@ -110,7 +110,10 @@ pub fn instrs_to_string(instrs: &Vec<Instr>) -> String {
 
         }
         result+=&instr_to_string(instr);
-        result +="\n";
+        if i != instrs.len() -1{
+            result +="\n";
+        }
+        i += 1
     }
     result
 }

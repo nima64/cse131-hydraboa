@@ -14,6 +14,10 @@ success_tests! {
     binop_equal: { file: "equal", input: "", expected: "true" },
     unop_add1: { file: "add1", input: "", expected: "4" },
     unop_sub1: { file: "sub1", input: "", expected: "-4" },
+    fun_fact: {file:"fact", input: "9", expected: "362880"},
+    fun_iseven: {file:"fun_iseven", input: "99", expected: "99
+false
+false"}
 
 }
 
@@ -21,6 +25,7 @@ runtime_error_tests! {
     integer_overflow_add1: { file: "integer_overflow_add1", input: "4611686018427387903", expected: "integer overflow" },
     integer_overflow_sub1: { file: "integer_overflow_sub1", input: "-4611686018427387904", expected: "integer overflow" },
     integer_overflow_mul: { file: "integer_overflow_mul", input: "2", expected: "integer overflow" },
+    integer_overflow_mul_negative: { file: "integer_overflow_mul_negative", input: "2", expected: "integer overflow" },
 }
 
 static_error_tests! {

@@ -21,6 +21,11 @@ pub extern "C" fn snek_error_wrapper(errorcode: i64) {
     snek_error(errorcode);
 }
 
+#[export_name = "\x01print_fun"]
+pub extern "C" fn print_fun_wrapper(val: i64) {
+    print_fun(val);
+}
+
 fn main() {
   let args: Vec<String> = env::args().collect();
   let input = if args.len() == 2 { &args[1]} else { "false"};

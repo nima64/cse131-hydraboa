@@ -59,6 +59,7 @@ pub enum Expr {
     Break(Box<Expr>),
     Set(String, Box<Expr>),
     FunCall(String, Vec<Expr>),
+    Print(Box<Expr>)
 }
 
 #[derive(Debug)]

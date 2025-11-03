@@ -18,7 +18,7 @@ use types::{Defn, Prog};
 
 #[derive(Clone, Copy)] // Add Copy!
 struct CompileCtx {
-    label_counter: i32,
+    label_counter: *mut i32,
     loop_depth: i32,
     current_loop_id: i32,
     max_depth: *mut i32,
@@ -58,8 +58,10 @@ fn parse_expr(s: &Sexp) -> Expr {
                 [Sexp::Atom(S(op)), e] if op == "isbool" => {
                     Expr::UnOp(Op1::IsBool, Box::new(parse_expr(e)))
                 }
+                [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), e] if op == "loop" => Expr::Loop(Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
+                [Sexp::Atom(S(op)), e] if op == "print" => Expr::Print(Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "+" => Expr::BinOp(
                     Op2::Plus,
                     Box::new(parse_expr(e1)),
@@ -280,8 +282,11 @@ fn compile_expr_with_env_repl(
                     instrs.push(Instr::Or(Reg::Rax, 1)); // Set tag bit to 1 (boolean)
                 }
                 Op1::IsBool => {
-                    let label_id = ctx.label_counter;
-                    ctx.label_counter += 1;
+                    let label_id = unsafe {
+                        let id = *ctx.label_counter;
+                        *ctx.label_counter += 1;
+                        id
+                    };
                     let skip_label = format!("isbool_skip_{}", label_id);
 
                     instrs.push(Instr::Test(Reg::Rax, 1)); // Test bit 0
@@ -460,8 +465,11 @@ fn compile_expr_with_env_repl(
             instrs
         }
         Expr::Loop(e) => {
-            let loop_id = ctx.label_counter;
-            ctx.label_counter += 1;
+            let loop_id = unsafe {
+                let id = *ctx.label_counter;
+                *ctx.label_counter += 1;
+                id
+            };
 
             let loop_label = format!("loop_{}", loop_id);
             let end_loop_label = format!("endloop_{}", loop_id);
@@ -533,8 +541,11 @@ fn compile_expr_with_env_repl(
         }
         Expr::If(cond, then_expr, else_expr) => {
             let mut instrs = vec![];
-            let label_id = ctx.label_counter;
-            ctx.label_counter += 1;
+            let label_id = unsafe {
+                let id = *ctx.label_counter;
+                *ctx.label_counter += 1;
+                id
+            };
 
             let else_label = format!("else_{}", label_id);
             let end_label = format!("end_if_{}", label_id);
@@ -616,35 +627,43 @@ fn compile_expr_with_env_repl(
             // Result is now in RAX
             instrs
         }
+        Expr::Print(e ) => {
+            let mut instrs = compile_expr_with_env_repl(e, stack_depth, env, define_env, defns, ctx);
+            instrs.push(Instr::MovReg(Reg::Rdi, Reg::Rax));
+            instrs.push(Instr::Call("print_fun_external".to_string()));
+            instrs
+        }
     }
 }
 
 fn compile_prog(prog: &Prog) -> Vec<Instr> {
+    let base_input_slot = 16;
+    let mut env = HashMap::new();
+    env.insert("input".to_string(), base_input_slot);
+    let mut max_depth = base_input_slot;
+    let mut label_counter = 0;
+
+    let mut ctx = CompileCtx {
+        label_counter: &mut label_counter as *mut i32,
+        loop_depth: 0,
+        current_loop_id: -1,
+        max_depth: &mut max_depth as *mut i32,
+    };
+
     let mut instrs = Vec::new();
 
     instrs.push(Instr::Jmp("main_start".to_string()));
 
     for defn in &prog.defns {
-        println!("pushing {}", defn.name.clone());
+        // println!("pushing {}", defn.name.clone());
         instrs.push(Instr::Label(defn.name.clone()));
-        instrs.extend(compile_defn(defn, &prog.defns));
+        instrs.extend(compile_defn(defn, &prog.defns, ctx));
         instrs.push(Instr::Ret);
     }
 
     instrs.push(Instr::Label("main_start".to_string()));
 
-    let base_input_slot = 16;
-    let mut env = HashMap::new();
-    env.insert("input".to_string(), base_input_slot);
 
-    let mut max_depth = base_input_slot;
-
-    let mut ctx = CompileCtx {
-        label_counter: 0,
-        loop_depth: 0,
-        current_loop_id: -1,
-        max_depth: &mut max_depth as *mut i32,
-    };
 
     let body_instrs = compile_expr_with_env_repl(
         &prog.main,
@@ -672,7 +691,7 @@ fn compile_prog(prog: &Prog) -> Vec<Instr> {
     instrs
 }
 
-fn compile_defn(defn: &Defn, defns: &Vec<Defn>) -> Vec<Instr> {
+fn compile_defn(defn: &Defn, defns: &Vec<Defn>, mut ctx: CompileCtx) -> Vec<Instr> {
     let mut current_depth = 16; // makespace for rdi
     let mut max_depth = current_depth; // at least the input slot exists
     let mut env = HashMap::new();
@@ -683,13 +702,6 @@ fn compile_defn(defn: &Defn, defns: &Vec<Defn>) -> Vec<Instr> {
         env.insert(arg_name.clone(), -current_depth);
         current_depth += 8;
     }
-
-    let mut ctx = CompileCtx {
-        label_counter: 0,
-        loop_depth: 0,
-        current_loop_id: -1,
-        max_depth: &mut max_depth as *mut i32,
-    };
 
     // First temp will be at 24 (= 16 + 8)
     let body_instrs = compile_expr_with_env_repl(
@@ -729,9 +741,10 @@ fn compile_expr(e: &Expr) -> Vec<Instr> {
     env.insert("input".to_string(), base_input_slot);
 
     let mut max_depth = base_input_slot; // at least the input slot exists
+    let mut label_counter = 0;
 
     let mut ctx = CompileCtx {
-        label_counter: 0,
+        label_counter: &mut label_counter as *mut i32,
         loop_depth: 0,
         current_loop_id: -1,
         max_depth: &mut max_depth as *mut i32,
@@ -765,14 +778,14 @@ fn compile_expr(e: &Expr) -> Vec<Instr> {
     instrs.push(Instr::MovReg(Reg::Rsp, Reg::Rbp)); // mov rsp, rbp
     instrs.push(Instr::Pop(Reg::Rbp)); // pop rbp
                                        // (RET comes from your jit trampoline / AOT wrapper)
-
     instrs
 }
 
 fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<Instr> {
     let mut max_depth = 0;
+    let mut label_counter = 0;
     let ctx = CompileCtx {
-        label_counter: 0,
+        label_counter: &mut label_counter as *mut i32,
         loop_depth: 0,
         current_loop_id: -1,
         max_depth: &mut max_depth as *mut i32,
@@ -792,12 +805,16 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
     let error_overflow = ops.new_dynamic_label();
     let error_arithmetic = ops.new_dynamic_label();
     let error_common = ops.new_dynamic_label();
+    let print_fun_external = ops.new_dynamic_label();
 
     labels.insert("type_mismatch_error".to_string(), error_type_mismatch);
     labels.insert("overflow_error".to_string(), error_overflow);
     labels.insert("type_error_arithmetic".to_string(), error_arithmetic);
+    labels.insert("print_fun_external".to_string(), print_fun_external);
     let c_func_ptr: extern "C" fn(i64) -> i64 =
         unsafe { mem::transmute(common::snek_error as *const ()) };
+    let print_func_ptr: extern "C" fn(i64) -> i64 =
+        unsafe { mem::transmute(common::print_fun as *const ()) };
 
     // Pre-create all labels
     for instr in instrs {
@@ -823,6 +840,12 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
         ; =>error_common
         ; mov rax, QWORD c_func_ptr as i64
         ; call rax
+        ; ret
+        ; =>print_fun_external
+        ; sub rsp, 8
+        ; mov rax, QWORD print_func_ptr as i64
+        ; call rax
+        ; add rsp, 8
         ; ret
         ; ->done:
         ; ret
@@ -927,10 +950,11 @@ fn main() -> std::io::Result<()> {
             "
 section .text
 extern snek_error
+extern print_fun
 global our_code_starts_here
 our_code_starts_here:
 {}
-jmp done
+  jmp done
 overflow_error:
   mov rdi, 2
   jmp error_common
@@ -941,6 +965,11 @@ type_error_arithmetic:
   mov rdi, 3
 error_common:
   call snek_error
+  jmp done
+print_fun_external:
+  sub rsp, 8 ; alignment for 16 bytes to prevent segfaulting
+  call print_fun
+  add rsp, 8
   ret
 done:
   ret
