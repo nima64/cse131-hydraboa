@@ -20,6 +20,7 @@ success_tests! {
 // false"}
     // fun_iseven: {file:"fun_iseven", input: "99", expected: "99\nfalse\nfalse"},
     fun_iseven: {file:"fun_iseven", input: "99", expected: "false"},
+    fun_print_iseven: {file:"fun_print_iseven", input: "99", expected: "false\nfalse"},
     fun_print: {file:"print", input: "", expected: "3
 3"},
     fun_print_input: {file:"print_input", input: "99", expected: "99
