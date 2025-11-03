@@ -264,11 +264,15 @@ fn compile_expr_with_env_repl(
                 compile_expr_with_env_repl(subexpr, stack_depth, env, define_env, defns, ctx);
             match op {
                 Op1::Add1 => {
+                    instrs.push(Instr::Test(Reg::Rax, 1));// AND with 1 to check LSB and see if its 1 aka BOOL 
+                    instrs.push(Instr::Jnz("type_error_arithmetic".to_string())); // jump to error if it is boolean 
                     instrs.push(Instr::Mov(Reg::Rcx, tag_number(1)));
                     instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
                     instrs.push(Instr::Jo("overflow_error".to_string()));
                 }
                 Op1::Sub1 => {
+                    instrs.push(Instr::Test(Reg::Rax, 1));// AND with 1 to check LSB and see if its 1 aka BOOL 
+                    instrs.push(Instr::Jnz("type_error_arithmetic".to_string())); // jump to error if it is boolean 
                     instrs.push(Instr::Mov(Reg::Rcx, tag_number(-1)));
                     instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
                     instrs.push(Instr::Jo("overflow_error".to_string()));
@@ -365,6 +369,7 @@ fn compile_expr_with_env_repl(
                     // end type check 
 
                     instrs.push(Instr::AddReg(Reg::Rax, Reg::Rcx));
+                    instrs.push(Instr::Jo("overflow_error".to_string()));
                 }
                 Op2::Minus => {
                     instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
@@ -376,6 +381,7 @@ fn compile_expr_with_env_repl(
                     // end type check 
                     instrs.push(Instr::MinusReg(Reg::Rcx, Reg::Rax));
                     instrs.push(Instr::MovReg(Reg::Rax, Reg::Rcx));
+                    instrs.push(Instr::Jo("overflow_error".to_string()));
                 }
                 Op2::Times => {
                     instrs.push(Instr::MovFromStack(Reg::Rcx, stack_depth));
