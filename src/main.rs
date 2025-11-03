@@ -848,10 +848,10 @@ fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
         ; call rax
         ; ret
         ; =>print_fun_external
-        ; sub rsp, 8
+        // ; sub rsp, 8
         ; mov rax, QWORD print_func_ptr as i64
         ; call rax
-        ; add rsp, 8
+        // ; add rsp, 8
         ; ret
         ; ->done:
         ; ret
