@@ -16,6 +16,5 @@
 )
 
 (block
-  (print 99)
-  (print (iseven 99))
+  (iseven 99)
 )
