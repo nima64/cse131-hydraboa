@@ -15,10 +15,10 @@ success_tests! {
     // unop_add1: { file: "add1", input: "", expected: "4" },
     // unop_sub1: { file: "sub1", input: "", expected: "-4" },
     fun_fact: {file:"fact", input: "9", expected: "362880"},
-//     fun_iseven: {file:"fun_iseven", input: "99", expected: "99
+    // fun_iseven: {file:"fun_iseven", input: "99", expected: "99
 // false
 // false"}
-    fun_iseven: {file:"fun_iseven", input: "", expected: "false"},
+    fun_iseven: {file:"fun_iseven", input: "99", expected: "99\nfalse\nfalse"},
     fun_print: {file:"print", input: "", expected: "3
 3"},
     fun_print_input: {file:"print_input", input: "99", expected: "99

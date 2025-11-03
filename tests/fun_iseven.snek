@@ -15,4 +15,7 @@
   )
 )
 
-(iseven 99)
+(block
+  (print input)
+  (print (iseven input))
+)
