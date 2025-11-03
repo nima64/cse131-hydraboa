@@ -24,7 +24,10 @@ success_tests! {
     fun_print: {file:"print", input: "", expected: "3
 3"},
     fun_print_input: {file:"print_input", input: "99", expected: "99
-99"}
+99"},
+    fun_chain: {file:"fun_chain", input: "", expected: "19
+19"},
+    fun_mutual_recursion: {file:"fun_mutual_recursion", input: "", expected: "25\n25"}
 }
 
 runtime_error_tests! {

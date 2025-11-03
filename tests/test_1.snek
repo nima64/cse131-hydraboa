@@ -1,0 +1,5 @@
+(let ((i 0))
+(loop
+(if (= i 3)
+(set! i true)
+(set! i (+ i 1)))))

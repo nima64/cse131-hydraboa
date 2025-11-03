@@ -11,8 +11,10 @@ use std::panic;
 
 mod assembly;
 mod common;
+mod parser;
 mod types;
 use assembly::*;
+use parser::*;
 use types::*;
 use types::{Defn, Prog};
 
@@ -24,213 +26,7 @@ struct CompileCtx {
     max_depth: *mut i32,
 }
 
-// fn parse_expr(s: &Sexp, func_names: &HashSet<String>) -> Expr {
-fn parse_expr(s: &Sexp) -> Expr {
-    match s {
-        Sexp::Atom(I(n)) => {
-            if !(*n >= -2_i64.pow(62) && *n <= 2_i64.pow(62)-1){
-                panic!("not a valid number must be an integer between -2^62 and 2^62-1");
-            }
-            Expr::Number(tag_number(*n))
-        },
-        Sexp::Atom(S(name)) => {
-            //
-            /* Check is boolean */
-            if (name == "true") {
-                return Expr::Boolean(true);
-            } else if (name == "false") {
-                return Expr::Boolean(false);
-            }
-            Expr::Id(name.to_string())
-        }
-        Sexp::List(vec) => {
-            /* */
-            match &vec[..] {
-                [Sexp::Atom(S(op)), e] if op == "add1" => {
-                    Expr::UnOp(Op1::Add1, Box::new(parse_expr(e)))
-                }
-                [Sexp::Atom(S(op)), e] if op == "sub1" => {
-                    Expr::UnOp(Op1::Sub1, Box::new(parse_expr(e)))
-                }
-                [Sexp::Atom(S(op)), e] if op == "isnum" => {
-                    Expr::UnOp(Op1::IsNum, Box::new(parse_expr(e)))
-                }
-                [Sexp::Atom(S(op)), e] if op == "isbool" => {
-                    Expr::UnOp(Op1::IsBool, Box::new(parse_expr(e)))
-                }
-                [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
-                [Sexp::Atom(S(op)), e] if op == "loop" => Expr::Loop(Box::new(parse_expr(e))),
-                [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
-                [Sexp::Atom(S(op)), e] if op == "print" => Expr::Print(Box::new(parse_expr(e))),
-                [Sexp::Atom(S(op)), e1, e2] if op == "+" => Expr::BinOp(
-                    Op2::Plus,
-                    Box::new(parse_expr(e1)),
-                    Box::new(parse_expr(e2)),
-                ),
-                [Sexp::Atom(S(op)), e1, e2] if op == "-" => Expr::BinOp(
-                    Op2::Minus,
-                    Box::new(parse_expr(e1)),
-                    Box::new(parse_expr(e2)),
-                ),
-                [Sexp::Atom(S(op)), e1, e2] if op == "*" => Expr::BinOp(
-                    Op2::Times,
-                    Box::new(parse_expr(e1)),
-                    Box::new(parse_expr(e2)),
-                ),
-                [Sexp::Atom(S(op)), e1, e2] if op == "<" => Expr::BinOp(
-                    Op2::Less,
-                    Box::new(parse_expr(e1)),
-                    Box::new(parse_expr(e2)),
-                ),
-                [Sexp::Atom(S(op)), e1, e2] if op == ">" => Expr::BinOp(
-                    Op2::Greater,
-                    Box::new(parse_expr(e1)),
-                    Box::new(parse_expr(e2)),
-                ),
-                [Sexp::Atom(S(op)), e1, e2] if op == "<=" => Expr::BinOp(
-                    Op2::LessEqual,
-                    Box::new(parse_expr(e1)),
-                    Box::new(parse_expr(e2)),
-                ),
-                [Sexp::Atom(S(op)), e1, e2] if op == ">=" => Expr::BinOp(
-                    Op2::GreaterEqual,
-                    Box::new(parse_expr(e1)),
-                    Box::new(parse_expr(e2)),
-                ),
-                [Sexp::Atom(S(op)), e1, e2] if op == "=" => Expr::BinOp(
-                    Op2::Equal,
-                    Box::new(parse_expr(e1)),
-                    Box::new(parse_expr(e2)),
-                ),
-                [Sexp::Atom(S(op)), exprs @ ..] if op == "block" => {
-                    if exprs.is_empty() {
-                        panic!("Invalid: block needs at least one expression");
-                    }
-                    Expr::Block(exprs.iter().map(parse_expr).collect())
-                }
-
-                [Sexp::Atom(S(op)), Sexp::List(bindings), body] if op == "let" => {
-                    // Map each binding to (var_name, parsed_expr) tuple
-                    let parsed_bindings: Vec<(String, Expr)> = bindings
-                        .iter()
-                        .map(|binding| match binding {
-                            Sexp::List(pair) => match &pair[..] {
-                                [Sexp::Atom(S(var)), val] => (var.to_string(), parse_expr(val)),
-                                _ => panic!("Invalid binding: expected (variable value)"),
-                            },
-                            _ => panic!("Invalid binding: expected a list"),
-                        })
-                        .collect();
-
-                    Expr::Let(parsed_bindings, Box::new(parse_expr(body)))
-                }
-                [Sexp::Atom(S(op)), Sexp::Atom(S(name)), e] if op == "define" => {
-                    Expr::Define(name.to_string(), Box::new(parse_expr(e)))
-                }
-                [Sexp::Atom(S(op)), Sexp::Atom(S(name)), e] if op == "set!" => {
-                    Expr::Set(name.to_string(), Box::new(parse_expr(e)))
-                }
-
-                [Sexp::Atom(S(op)), cond, then_expr, else_expr] if op == "if" => Expr::If(
-                    Box::new(parse_expr(cond)),
-                    Box::new(parse_expr(then_expr)),
-                    Box::new(parse_expr(else_expr)),
-                ),
-
-                // Function call: (<name> <expr>*)
-                [Sexp::Atom(S(name)), args @ ..] => {
-                    let parsed_args = args.iter().map(|arg| parse_expr(arg)).collect();
-                    Expr::FunCall(name.to_string(), parsed_args)
-                }
-
-                _ => panic!("parse error!"),
-            }
-        }
-        _ => panic!("parse error"),
-    }
-}
-
-fn parse_defn(s: &Sexp) -> Defn {
-    match s {
-        Sexp::List(vec) => match &vec[..] {
-            [Sexp::Atom(S(keyword)), Sexp::List(signature), body] if keyword == "fun" => {
-                match &signature[..] {
-                    [Sexp::Atom(S(name)), params @ ..] => {
-                        let param_names: Vec<String> = params
-                            .iter()
-                            .map(|p| match p {
-                                Sexp::Atom(S(param_name)) => param_name.to_string(),
-                                _ => panic!("Invalid: function parameter must be an identifier"),
-                            })
-                            .collect();
-
-                        Defn {
-                            name: name.to_string(),
-                            params: param_names,
-                            body: Box::new(parse_expr(body)),
-                        }
-                    }
-                    _ => panic!("Invalid: function definition must have a name"),
-                }
-            }
-            _ => panic!("Invalid: expected function definition (fun ...)"),
-        },
-        _ => panic!("Invalid: function definition must be a list"),
-    }
-}
-
-fn parse_prog(s: &Sexp) -> Prog {
-    match s {
-        Sexp::List(items) => {
-            let mut defns = Vec::new();
-            let mut main_expr = None;
-
-            for item in items {
-                match item {
-                    Sexp::List(inner) => {
-                        if let Some(Sexp::Atom(S(keyword))) = inner.first() {
-                            if keyword == "fun" {
-                                defns.push(parse_defn(item));
-                                continue;
-                            }
-                        }
-                        // If we get here, it's not a function definition, so it's the main expr
-                        if main_expr.is_none() {
-                            main_expr = Some(parse_expr(item));
-                        } else {
-                            panic!("Invalid: only one main expression allowed");
-                        }
-                    }
-                    _ => {
-                        // Any other expression (atoms, etc.) is the main expression
-                        if main_expr.is_none() {
-                            main_expr = Some(parse_expr(item));
-                        } else {
-                            panic!("Invalid: only one main expression allowed");
-                        }
-                    }
-                }
-            }
-
-            Prog {
-                defns,
-                main: Box::new(
-                    main_expr
-                        .unwrap_or_else(|| panic!("Invalid: program must have a main expression")),
-                ),
-            }
-        }
-        _ => {
-            // Single expression, no function definitions
-            Prog {
-                defns: Vec::new(),
-                main: Box::new(parse_expr(s)),
-            }
-        }
-    }
-}
-
-fn compile_expr_with_env_repl(
+fn compile_expr_define_env(
     e: &Expr,
     stack_depth: i32,
     env: &HashMap<String, i32>,
@@ -251,8 +47,8 @@ fn compile_expr_with_env_repl(
             // Check env (stack) first for local variables
             if let Some(offset) = env.get(name) {
                 vec![Instr::MovFromStack(Reg::Rax, *offset)]
+            // If not in env, check replEnv for defined variables
             } else if let Some(boxed_value) = define_env.get(name) {
-                // If not in env, check replEnv for defined variables
                 println!("value held in {}: {}", name, untag_number(**boxed_value));
                 vec![Instr::Mov(Reg::Rax, **boxed_value)]
             } else {
@@ -261,7 +57,7 @@ fn compile_expr_with_env_repl(
         }
         Expr::UnOp(op, subexpr) => {
             let mut instrs =
-                compile_expr_with_env_repl(subexpr, stack_depth, env, define_env, defns, ctx);
+                compile_expr_define_env(subexpr, stack_depth, env, define_env, defns, ctx);
             match op {
                 Op1::Add1 => {
                     instrs.push(Instr::Test(Reg::Rax, 1));// AND with 1 to check LSB and see if its 1 aka BOOL 
@@ -306,10 +102,10 @@ fn compile_expr_with_env_repl(
         }
         Expr::BinOp(op, e1, e2) => {
             let mut instrs =
-                compile_expr_with_env_repl(e1, stack_depth, env, define_env, defns, ctx);
+                compile_expr_define_env(e1, stack_depth, env, define_env, defns, ctx);
             instrs.push(Instr::MovToStack(Reg::Rax, stack_depth));
             // e2 is on rax and e1 is on the stack
-            instrs.extend(compile_expr_with_env_repl(
+            instrs.extend(compile_expr_define_env(
                 e2,
                 stack_depth + 8,
                 env,
@@ -412,7 +208,7 @@ fn compile_expr_with_env_repl(
                     panic!("Duplicate binding");
                 }
                 duplicate_binding.insert(var, 1);
-                instrs.extend(compile_expr_with_env_repl(
+                instrs.extend(compile_expr_define_env(
                     val_expr,
                     current_depth,
                     &new_env,
@@ -426,7 +222,7 @@ fn compile_expr_with_env_repl(
                 current_depth += 8;
             }
 
-            instrs.extend(compile_expr_with_env_repl(
+            instrs.extend(compile_expr_define_env(
                 body,
                 current_depth,
                 &new_env,
@@ -437,7 +233,7 @@ fn compile_expr_with_env_repl(
             instrs
         }
         Expr::Define(name, e) => {
-            let instrs = compile_expr_with_env_repl(e, stack_depth, env, define_env, defns, ctx);
+            let instrs = compile_expr_define_env(e, stack_depth, env, define_env, defns, ctx);
             let val = jit_code(&instrs);
 
             let boxed_val = Box::new(val);
@@ -459,7 +255,7 @@ fn compile_expr_with_env_repl(
             let mut instrs: Vec<Instr> = vec![];
 
             for expr in exprs {
-                instrs.extend(compile_expr_with_env_repl(
+                instrs.extend(compile_expr_define_env(
                     expr,
                     stack_depth,
                     env,
@@ -487,7 +283,7 @@ fn compile_expr_with_env_repl(
 
             let mut instrs = vec![];
             instrs.push(Instr::Label(loop_label.clone()));
-            instrs.extend(compile_expr_with_env_repl(
+            instrs.extend(compile_expr_define_env(
                 e,
                 stack_depth,
                 env,
@@ -504,7 +300,7 @@ fn compile_expr_with_env_repl(
                 panic!("Invalid: break outside of loop");
             }
             let mut instrs = vec![];
-            instrs.extend(compile_expr_with_env_repl(
+            instrs.extend(compile_expr_define_env(
                 e,
                 stack_depth,
                 env,
@@ -525,7 +321,7 @@ fn compile_expr_with_env_repl(
             let mut instrs = vec![];
 
             // Compile the expression to assign (result in RAX)
-            instrs.extend(compile_expr_with_env_repl(
+            instrs.extend(compile_expr_define_env(
                 e,
                 stack_depth,
                 env,
@@ -556,7 +352,7 @@ fn compile_expr_with_env_repl(
             let else_label = format!("else_{}", label_id);
             let end_label = format!("end_if_{}", label_id);
 
-            instrs.extend(compile_expr_with_env_repl(
+            instrs.extend(compile_expr_define_env(
                 cond,
                 stack_depth,
                 env,
@@ -570,7 +366,7 @@ fn compile_expr_with_env_repl(
             // 3. Jump to else branch if condition equals false
             instrs.push(Instr::Je(else_label.clone()));
 
-            instrs.extend(compile_expr_with_env_repl(
+            instrs.extend(compile_expr_define_env(
                 then_expr,
                 stack_depth,
                 env,
@@ -585,7 +381,7 @@ fn compile_expr_with_env_repl(
             // 6. Else branch label
             instrs.push(Instr::Label(else_label));
 
-            instrs.extend(compile_expr_with_env_repl(
+            instrs.extend(compile_expr_define_env(
                 else_expr,
                 stack_depth,
                 env,
@@ -621,7 +417,7 @@ fn compile_expr_with_env_repl(
             let mut instrs = Vec::new();
 
             for arg in args {
-                instrs.extend(compile_expr_with_env_repl(
+                instrs.extend(compile_expr_define_env(
                     arg, stack_depth, env,
                     define_env, defns, ctx,
                 ));
@@ -629,12 +425,15 @@ fn compile_expr_with_env_repl(
             }
 
             instrs.push(Instr::Call(name.clone()));
+            if !args.is_empty() {
+                instrs.push(Instr::Add(Reg::Rsp, (args.len() * 8) as i32));
+            }
 
             // Result is now in RAX
             instrs
         }
         Expr::Print(e ) => {
-            let mut instrs = compile_expr_with_env_repl(e, stack_depth, env, define_env, defns, ctx);
+            let mut instrs = compile_expr_define_env(e, stack_depth, env, define_env, defns, ctx);
             instrs.push(Instr::MovReg(Reg::Rdi, Reg::Rax));
             instrs.push(Instr::Call("print_fun_external".to_string()));
             instrs
@@ -670,8 +469,7 @@ fn compile_prog(prog: &Prog) -> Vec<Instr> {
     instrs.push(Instr::Label("main_start".to_string()));
 
 
-
-    let body_instrs = compile_expr_with_env_repl(
+    let body_instrs = compile_expr_define_env(
         &prog.main,
         base_input_slot + 8,
         &env,
@@ -697,46 +495,45 @@ fn compile_prog(prog: &Prog) -> Vec<Instr> {
     instrs
 }
 
+// TODO every function have create a new env? 
 fn compile_defn(defn: &Defn, defns: &Vec<Defn>, mut ctx: CompileCtx) -> Vec<Instr> {
-    let mut current_depth = 16; // makespace for rdi
+    let mut current_depth = 8; 
     let mut max_depth = current_depth; // at least the input slot exists
     let mut env = HashMap::new();
     env.insert("input".to_string(), current_depth);
 
-    //assume args are already allocated
-    for arg_name in &defn.params {
-        env.insert(arg_name.clone(), -current_depth);
-        current_depth += 8;
+    // assume args are already allocated
+    // Arguments are at positive offsets from rbp
+    let num_params = defn.params.len();
+    for (i, arg_name) in defn.params.iter().enumerate() {
+        // 8 +  for intial ret addr put on stack by call 
+        let offset = 8 + ((num_params - i) * 8);
+
+        env.insert(arg_name.clone(), -1 * offset as i32);
     }
 
-    // First temp will be at 24 (= 16 + 8)
-    let body_instrs = compile_expr_with_env_repl(
+    let body_instrs = compile_expr_define_env(
         &defn.body,
-        current_depth + 8,
+        current_depth,
         &env,
         &mut HashMap::new(),
         defns,
         ctx,
     );
 
-    // finalize frame size (multiple of 16)
-    let frame_size: i32 = ((max_depth + 15) / 16) * 16; //rounds to the mutiple of 16
+    let frame_size: i32 = (((num_params as i32)*8 + 15) / 16) * 16;
 
     // Prologue + initialize input slot, then body, then epilogue
     let mut instrs = Vec::new();
     instrs.push(Instr::Push(Reg::Rbp));
     instrs.push(Instr::MovReg(Reg::Rbp, Reg::Rsp));
-    instrs.push(Instr::Sub(Reg::Rsp, frame_size)); // sub rsp, frame_size (16-byte aligned)
-
-    // store arg: input (rdi) at [rbp-16]
-    instrs.push(Instr::MovToStack(Reg::Rdi, current_depth));
+    instrs.push(Instr::Sub(Reg::Rsp, max_depth)); // sub rsp, frame_size (16-byte aligned)
 
     instrs.extend(body_instrs);
 
     // Epilogue
-    instrs.push(Instr::MovReg(Reg::Rsp, Reg::Rbp)); // mov rsp, rbp
-    instrs.push(Instr::Pop(Reg::Rbp)); // pop rbp
-                                       // (RET comes from your jit trampoline / AOT wrapper)
+    instrs.push(Instr::MovReg(Reg::Rsp, Reg::Rbp)); 
+    instrs.push(Instr::Pop(Reg::Rbp));
 
     instrs
 }
@@ -756,8 +553,7 @@ fn compile_expr(e: &Expr) -> Vec<Instr> {
         max_depth: &mut max_depth as *mut i32,
     };
 
-    // First temp will be at 24 (= 16 + 8)
-    let body_instrs = compile_expr_with_env_repl(
+    let body_instrs = compile_expr_define_env(
         e,
         base_input_slot + 8,
         &env,
@@ -766,16 +562,13 @@ fn compile_expr(e: &Expr) -> Vec<Instr> {
         ctx,
     );
 
-    // finalize frame size (multiple of 16)
     let frame_size: i32 = ((max_depth + 15) / 16) * 16; //rounds to the mutiple of 16
 
-    // Prologue + initialize input slot, then body, then epilogue
     let mut instrs = Vec::new();
     instrs.push(Instr::Push(Reg::Rbp));
     instrs.push(Instr::MovReg(Reg::Rbp, Reg::Rsp));
     instrs.push(Instr::Sub(Reg::Rsp, frame_size)); // sub rsp, frame_size (16-byte aligned)
 
-    // store arg: input (rdi) at [rbp-16]
     instrs.push(Instr::MovToStack(Reg::Rdi, base_input_slot));
 
     instrs.extend(body_instrs);
@@ -797,7 +590,7 @@ fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<I
         max_depth: &mut max_depth as *mut i32,
     };
     // let temp = Vec<Defn>![];
-    compile_expr_with_env_repl(e, 16, &HashMap::new(), replEnv, &vec![], ctx)
+    compile_expr_define_env(e, 16, &HashMap::new(), replEnv, &vec![], ctx)
 }
 
 fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {

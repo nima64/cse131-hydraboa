@@ -1,0 +1,15 @@
+(fun (ping n)
+  (if (= n 0)
+    n
+    (+ (pong (sub1 n)) 1)
+  )
+)
+
+(fun (pong n)
+  (if (= n 0)
+    n
+    (ping (sub1 n))
+  )
+)
+
+(print (ping 50))
