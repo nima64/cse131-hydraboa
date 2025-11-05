@@ -40,7 +40,7 @@ static_error_tests! {
     test_loop_break_error: { file: "loop_break", input: "", expected: "break outside of loop" },
     duplicate_function_name: { file: "duplicate_fun", input: "", expected: "Multiple functions are defined with the same name" },
     undefined_function: { file: "undefined_fun", input: "", expected: "" },
-    input_in_function: { file: "input_in_fun", input: "5", expected: "input" },
+    input_in_function: { file: "input_in_fun", input: "5", expected: "Unbound variable identifier input" },
     wrong_arg_count: { file: "wrong_arg_count", input: "", expected: "" },
 }
 

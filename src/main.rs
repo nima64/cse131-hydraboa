@@ -53,7 +53,10 @@ fn compile_expr_define_env(
             // If not in env, check repl_env for defined variables
             } else if let Some(boxed_value) = define_env.get(name) {
                 println!("value held in {}: {}", name, untag_number(**boxed_value));
-                vec![Instr::Mov(Reg::Rax, **boxed_value)]
+                let addr = boxed_value.as_ref() as *const i64 as i64;
+                vec![Instr::Mov(Reg::Rax, addr), 
+                    Instr::MovDeref(Reg::Rax, Reg::Rax)
+                ]
             } else {
                 panic!("Unbound variable identifier {}", name)
             }
@@ -410,7 +413,7 @@ fn compile_expr_define_env(
             // Check argument count matches
             if args.len() != defn.params.len() {
                 panic!(
-                    "Function {} expects {} arguments, got {}",
+                    "Duplicate arguments: Function {} expects {} arguments, got {}",
                     name,
                     defn.params.len(),
                     args.len()
@@ -660,6 +663,71 @@ fn jit_code(instrs: &Vec<Instr>) -> i64 {
     jit_code_input(instrs, FLASE_TAGGED)
 }
 
+fn run_jit(in_name: &str, input_arg: &str) -> std::io::Result<()> {
+    let input = parse_input(input_arg);
+
+    let mut in_file = File::open(in_name)?;
+    let mut in_contents = String::new();
+    in_file.read_to_string(&mut in_contents)?;
+
+    // Wrap in parentheses to create a program
+    in_contents = format!("({})", in_contents);
+    let sexpr = parse(&in_contents).unwrap();
+    let prog = parse_prog(&sexpr);
+    let instrs = compile_prog(&prog);
+
+    let result = jit_code_input(&instrs, input);
+    println!("{}", format_result(result));
+    Ok(())
+}
+
+fn run_aot(in_name: &str, out_name: &str) -> std::io::Result<()> {
+    let mut in_file = File::open(in_name)?;
+    let mut in_contents = String::new();
+    in_file.read_to_string(&mut in_contents)?;
+    in_contents = format!("({})", in_contents);
+
+    let sexpr = parse(&in_contents).unwrap();
+    let prog = parse_prog(&sexpr);
+    let instrs = compile_prog(&prog);
+    let result = instrs_to_string(&instrs);
+
+    let asm_program = format!(
+        "
+section .text
+extern snek_error
+extern print_fun
+global our_code_starts_here
+our_code_starts_here:
+{}
+  jmp done
+overflow_error:
+  mov rdi, 2
+  jmp error_common
+type_mismatch_error:
+  mov rdi, 1
+  jmp error_common
+type_error_arithmetic:
+  mov rdi, 3
+error_common:
+  call snek_error
+  jmp done
+print_fun_external:
+  sub rsp, 8 ; alignment for 16 bytes to prevent segfaulting
+  call print_fun
+  add rsp, 8
+  ret
+done:
+  ret
+            ",
+        result
+    );
+
+    let mut out_file = File::create(out_name)?;
+    out_file.write_all(asm_program.as_bytes())?;
+    Ok(())
+}
+
 fn main() -> std::io::Result<()> {
     let args: Vec<String> = env::args().collect();
 
@@ -667,25 +735,22 @@ fn main() -> std::io::Result<()> {
     let use_jit = args.iter().any(|arg| arg == "-e");
     let use_aot = args.iter().any(|arg| arg == "-c");
     let use_repl = args.iter().any(|arg| arg == "-i");
+    let use_g = args.iter().any(|arg| arg == "-g");
 
-    if use_jit {
-        // JIT compilation path (-e or -g)
-        let in_name = &args[2]; // Second arg after flag
+    if use_g {
+        // Combined AOT + JIT compilation path (-g)
+        let in_name = &args[2];
+        let out_name = &args[3];
+        let input_arg = if args.len() >= 5 { &args[4] } else { "false" };
+
+        run_aot(in_name, out_name)?;
+        run_jit(in_name, input_arg)?;
+    } else if use_jit {
+        // JIT compilation path (-e)
+        let in_name = &args[2];
         let input_arg = if args.len() >= 4 { &args[3] } else { "false" };
-        let input = parse_input(input_arg);
 
-        let mut in_file = File::open(in_name)?;
-        let mut in_contents = String::new();
-        in_file.read_to_string(&mut in_contents)?;
-
-        // Wrap in parentheses to create a program
-        in_contents = format!("({})", in_contents);
-        let sexpr = parse(&in_contents).unwrap();
-        let prog = parse_prog(&sexpr);
-        let instrs = compile_prog(&prog);
-
-        let result = jit_code_input(&instrs, input);
-        println!("{}", format_result(result));
+        run_jit(in_name, input_arg)?;
     } else if use_repl {
         let mut repl_env: HashMap<String, Box<i64>> = HashMap::new();
         while true {
@@ -732,52 +797,11 @@ fn main() -> std::io::Result<()> {
             }
         }
     } else if use_aot {
-        let in_name: &_ = &args[2];
+        // AOT compilation path (-c)
+        let in_name = &args[2];
         let out_name = &args[3];
 
-        let mut in_file = File::open(in_name)?;
-        let mut in_contents = String::new();
-        in_file.read_to_string(&mut in_contents)?;
-        in_contents = format!("({})", in_contents);
-        // parse_prog();
-        let sexpr = parse(&in_contents).unwrap();
-        let prog = parse_prog(&sexpr);
-        let instrs = compile_prog(&prog);
-        let result = instrs_to_string(&instrs);
-
-        let asm_program = format!(
-            "
-section .text
-extern snek_error
-extern print_fun
-global our_code_starts_here
-our_code_starts_here:
-{}
-  jmp done
-overflow_error:
-  mov rdi, 2
-  jmp error_common
-type_mismatch_error:
-  mov rdi, 1
-  jmp error_common
-type_error_arithmetic:
-  mov rdi, 3
-error_common:
-  call snek_error
-  jmp done
-print_fun_external:
-  sub rsp, 8 ; alignment for 16 bytes to prevent segfaulting
-  call print_fun
-  add rsp, 8
-  ret
-done:
-  ret
-            ",
-            result
-        );
-
-        let mut out_file = File::create(out_name)?;
-        out_file.write_all(asm_program.as_bytes())?;
+        run_aot(in_name, out_name)?;
     }
     Ok(())
 }
