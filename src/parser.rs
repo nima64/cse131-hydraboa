@@ -157,7 +157,7 @@ pub fn parse_defn(s: &Sexp) -> Defn {
 pub fn parse_prog(s: &Sexp) -> Prog {
     match s {
         Sexp::List(items) => {
-            let mut defns = Vec::new();
+            let mut defns:Vec<Defn> = Vec::new();
             let mut main_expr = None;
 
             for item in items {
@@ -165,7 +165,11 @@ pub fn parse_prog(s: &Sexp) -> Prog {
                     Sexp::List(inner) => {
                         if let Some(Sexp::Atom(S(keyword))) = inner.first() {
                             if keyword == "fun" {
-                                defns.push(parse_defn(item));
+                                let defn = parse_defn(item);
+                                if defns.iter().any(|d| d.name == defn.name) {
+                                    panic!("Multiple functions are defined with the same name");
+                                }
+                                defns.push(defn);
                                 continue;
                             }
                         }

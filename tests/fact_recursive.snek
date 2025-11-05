@@ -1,0 +1,11 @@
+(fun (factorial n)
+  (if (= n 0)
+    1
+    (if (= n 1)
+      1
+      (* n (factorial (sub1 n)))
+    )
+  )
+)
+
+(print (factorial input))

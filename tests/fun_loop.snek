@@ -1,0 +1,27 @@
+(fun (fact n)
+    (let ((i 1)(total 1))
+        (loop (if (< i n)
+                (block 
+                    (set! i (add1 i))
+                    (set! total (* total i))
+                )
+                (break total)
+            )
+        )
+    )
+)
+
+(block 
+    (print (fact 10))
+    ; sum factorial 1! + 2! + 3! + 4! + 5! + 6! = 873
+    (let ((i 1)(total 1))
+        (loop (if (< i 6)
+                (block 
+                    (set! i (add1 i))
+                    (set! total (+ total (fact i)))
+                )
+                (break total)
+            )
+        )
+    )
+)

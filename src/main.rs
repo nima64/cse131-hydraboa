@@ -26,6 +26,9 @@ struct CompileCtx {
     max_depth: *mut i32,
 }
 
+
+enum DefineVal { Known(i64), Cell(Box<i64>) }
+
 fn compile_expr_define_env(
     e: &Expr,
     stack_depth: i32,
@@ -47,7 +50,7 @@ fn compile_expr_define_env(
             // Check env (stack) first for local variables
             if let Some(offset) = env.get(name) {
                 vec![Instr::MovFromStack(Reg::Rax, *offset)]
-            // If not in env, check replEnv for defined variables
+            // If not in env, check repl_env for defined variables
             } else if let Some(boxed_value) = define_env.get(name) {
                 println!("value held in {}: {}", name, untag_number(**boxed_value));
                 vec![Instr::Mov(Reg::Rax, **boxed_value)]
@@ -500,7 +503,6 @@ fn compile_defn(defn: &Defn, defns: &Vec<Defn>, mut ctx: CompileCtx) -> Vec<Inst
     let mut current_depth = 8; 
     let mut max_depth = current_depth; // at least the input slot exists
     let mut env = HashMap::new();
-    env.insert("input".to_string(), current_depth);
 
     // assume args are already allocated
     // Arguments are at positive offsets from rbp
@@ -574,13 +576,12 @@ fn compile_expr(e: &Expr) -> Vec<Instr> {
     instrs.extend(body_instrs);
 
     // Epilogue
-    instrs.push(Instr::MovReg(Reg::Rsp, Reg::Rbp)); // mov rsp, rbp
-    instrs.push(Instr::Pop(Reg::Rbp)); // pop rbp
-                                       // (RET comes from your jit trampoline / AOT wrapper)
+    instrs.push(Instr::MovReg(Reg::Rsp, Reg::Rbp));
+    instrs.push(Instr::Pop(Reg::Rbp));
     instrs
 }
 
-fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<Instr> {
+fn compile_expr_repl(e: &Expr, repl_env: &mut HashMap<String, Box<i64>>) -> Vec<Instr> {
     let mut max_depth = 0;
     let mut label_counter = 0;
     let ctx = CompileCtx {
@@ -589,8 +590,7 @@ fn compile_expr_repl(e: &Expr, replEnv: &mut HashMap<String, Box<i64>>) -> Vec<I
         current_loop_id: -1,
         max_depth: &mut max_depth as *mut i32,
     };
-    // let temp = Vec<Defn>![];
-    compile_expr_define_env(e, 16, &HashMap::new(), replEnv, &vec![], ctx)
+    compile_expr_define_env(e, 16, &HashMap::new(), repl_env, &vec![], ctx)
 }
 
 fn jit_code_input(instrs: &Vec<Instr>, input: i64) -> i64 {
@@ -687,7 +687,7 @@ fn main() -> std::io::Result<()> {
         let result = jit_code_input(&instrs, input);
         println!("{}", format_result(result));
     } else if use_repl {
-        let mut replEnv: HashMap<String, Box<i64>> = HashMap::new();
+        let mut repl_env: HashMap<String, Box<i64>> = HashMap::new();
         while true {
             print!("> ");
             io::stdout().flush().unwrap();
@@ -715,7 +715,7 @@ fn main() -> std::io::Result<()> {
             };
 
             let compile_result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                compile_expr_repl(&expr, &mut replEnv)
+                compile_expr_repl(&expr, &mut repl_env)
             }));
 
             let instrs = match compile_result {
