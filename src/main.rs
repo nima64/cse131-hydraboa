@@ -9,16 +9,13 @@ use compiler::*;
 use parser::*;
 use common::*;
 
-use dynasmrt::{dynasm, DynamicLabel, DynasmApi, DynasmLabelApi};
-use im::HashMap;
-use sexp::Atom::*;
 use sexp::*;
 use std::env;
 use std::fs::File;
 use std::io;
 use std::io::*;
-use std::mem;
 use std::panic;
+use im::HashMap;
 
 fn run_jit(in_name: &str, input_arg: &str) -> std::io::Result<()> {
     let input = parse_input(input_arg);
@@ -85,58 +82,51 @@ done:
     Ok(())
 }
 
-fn run_repl() -> std::io::Result<()> {
-    let mut define_env: HashMap<String, Box<i64>> = HashMap::new();
-    while true {
-        print!("> ");
-        io::stdout().flush().unwrap();
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        if (input.trim() == "quit") {
-            break;
+fn run_repl() {
+        let mut repl_env: HashMap<String, Box<i64>> = HashMap::new();
+        while true {
+            print!("> ");
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input);
+            if (input.trim() == "quit") {
+                break;
+            }
+            let sexp = match parse(&input) {
+                Ok(s) => s,
+                Err(e) => {
+                    println!("Invalid: parse error - {}", e);
+                    continue;
+                }
+            };
+
+            let expr_result = panic::catch_unwind(|| parse_expr(&sexp));
+
+            let expr = match expr_result {
+                Ok(e) => e,
+                Err(_) => {
+                    println!("Invalid: expression error");
+                    continue;
+                }
+            };
+
+            let compile_result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+                compile_expr_repl(&expr, &mut repl_env)
+            }));
+
+            let instrs = match compile_result {
+                Ok(i) => i,
+                Err(_) => {
+                    println!("Invalid: compilation error");
+                    continue;
+                }
+            };
+
+            if !instrs.is_empty() {
+                let result = jit_code(&instrs);
+                println!("{}", format_result(result));
+            }
         }
-        let sexp = match parse(&input) {
-            Ok(s) => s,
-            Err(e) => {
-                println!("Invalid: parse error - {}", e);
-                continue;
-            }
-        };
-
-        let expr_result = panic::catch_unwind(|| parse_expr(&sexp));
-
-        let expr = match expr_result {
-            Ok(e) => e,
-            Err(_) => {
-                println!("Invalid: expression error");
-                continue;
-            }
-        };
-
-    in_contents = format!("({})", in_contents);
-    let sexpr = parse(&in_contents).unwrap();
-    let prog = parse_prog(&sexpr);
-    let instrs = compile_prog(&prog);
-
-    let result = jit_code_input(&instrs, input);
-        let compile_result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-            compile_expr_repl(&expr, &mut define_env)
-        }));
-
-        let instrs = match compile_result {
-            Ok(i) => i,
-            Err(_) => {
-                println!("Invalid: compilation error");
-                continue;
-            }
-        };
-
-        if !instrs.is_empty() {
-            let result = jit_code(&instrs);
-            println!("{}", format_result(result));
-        }
-    }
-    Ok(())
 }
 
 fn main() -> std::io::Result<()> {
@@ -162,7 +152,7 @@ fn main() -> std::io::Result<()> {
 
         run_jit(in_name, input_arg)?;
     } else if use_repl {
-        run_repl()?;
+        run_repl();
     } else if use_aot {
         let in_name = &args[2];
         let out_name = &args[3];
