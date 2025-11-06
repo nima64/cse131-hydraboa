@@ -437,7 +437,7 @@ pub fn compile_expr_define_env(
     }
 }
 
-pub fn compile_prog(prog: &Prog) -> Vec<Instr> {
+pub fn compile_prog(prog: &Prog, define_env: &mut HashMap<String, Box<i64>>) -> Vec<Instr> {
     let base_input_slot = 16;
     let mut env = HashMap::new();
     env.insert("input".to_string(), base_input_slot);
@@ -456,9 +456,8 @@ pub fn compile_prog(prog: &Prog) -> Vec<Instr> {
     instrs.push(Instr::Jmp("main_start".to_string()));
 
     for defn in &prog.defns {
-        // println!("pushing {}", defn.name.clone());
         instrs.push(Instr::Label(defn.name.clone()));
-        instrs.extend(compile_defn(defn, &prog.defns, ctx));
+        instrs.extend(compile_defn(defn, &prog.defns, define_env, ctx));
         instrs.push(Instr::Ret);
     }
 
@@ -469,7 +468,7 @@ pub fn compile_prog(prog: &Prog) -> Vec<Instr> {
         &prog.main,
         base_input_slot + 8,
         &env,
-        &mut HashMap::new(),
+        define_env,
         &prog.defns,
         ctx,
     );
@@ -491,8 +490,8 @@ pub fn compile_prog(prog: &Prog) -> Vec<Instr> {
     instrs
 }
 
-// TODO every function have create a new env? 
-pub fn compile_defn(defn: &Defn, defns: &Vec<Defn>, mut ctx: CompileCtx) -> Vec<Instr> {
+// TODO every function have create a new env?
+pub fn compile_defn(defn: &Defn, defns: &Vec<Defn>, define_env: &mut HashMap<String, Box<i64>>, mut ctx: CompileCtx) -> Vec<Instr> {
     let mut current_depth = 8; 
     let mut max_depth = current_depth; // at least the input slot exists
     let mut env = HashMap::new();
@@ -511,7 +510,7 @@ pub fn compile_defn(defn: &Defn, defns: &Vec<Defn>, mut ctx: CompileCtx) -> Vec<
         &defn.body,
         current_depth,
         &env,
-        &mut HashMap::new(),
+        define_env,
         defns,
         ctx,
     );

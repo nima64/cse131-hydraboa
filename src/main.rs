@@ -17,6 +17,9 @@ use std::io::*;
 use std::panic;
 use im::HashMap;
 
+use crate::types::Prog;
+
+
 fn run_jit(in_name: &str, input_arg: &str) -> std::io::Result<()> {
     let input = parse_input(input_arg);
 
@@ -28,7 +31,7 @@ fn run_jit(in_name: &str, input_arg: &str) -> std::io::Result<()> {
     in_contents = format!("({})", in_contents);
     let sexpr = parse(&in_contents).unwrap();
     let prog = parse_prog(&sexpr);
-    let instrs = compile_prog(&prog);
+    let instrs = compile_prog(&prog, &mut HashMap::new());
 
     let result = jit_code_input(&instrs, input);
     println!("{}", format_result(result));
@@ -43,7 +46,7 @@ fn run_aot(in_name: &str, out_name: &str) -> std::io::Result<()> {
 
     let sexpr = parse(&in_contents).unwrap();
     let prog = parse_prog(&sexpr);
-    let instrs = compile_prog(&prog);
+    let instrs = compile_prog(&prog, &mut HashMap::new());
     let result = instrs_to_string(&instrs);
 
     let asm_program = format!(
@@ -84,43 +87,37 @@ done:
 
 fn run_repl() {
         let mut repl_env: HashMap<String, Box<i64>> = HashMap::new();
-        while true {
+        let mut accumulated_defns: Vec<types::Defn> = vec![];
+
+        loop {
             print!("> ");
             io::stdout().flush().unwrap();
             let mut input = String::new();
-            io::stdin().read_line(&mut input);
-            if (input.trim() == "quit") {
+            io::stdin().read_line(&mut input).unwrap();
+
+            if input.trim() == "quit" {
                 break;
             }
-            let sexp = match parse(&input) {
-                Ok(s) => s,
-                Err(e) => {
-                    println!("Invalid: parse error - {}", e);
-                    continue;
-                }
+
+            if input.trim().is_empty() {
+                continue;
+            }
+
+            input = format!("({})", input);
+
+            let sexpr = parse(&input).unwrap();
+            let parsed_prog = parse_prog(&sexpr);
+
+            // Accumulate function definitions
+            accumulated_defns.extend(parsed_prog.defns);
+
+            // Create a new Prog with all accumulated defns and the new main expression
+            let prog = Prog {
+                defns: accumulated_defns.clone(),
+                main: parsed_prog.main,
             };
 
-            let expr_result = panic::catch_unwind(|| parse_expr(&sexp));
-
-            let expr = match expr_result {
-                Ok(e) => e,
-                Err(_) => {
-                    println!("Invalid: expression error");
-                    continue;
-                }
-            };
-
-            let compile_result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-                compile_expr_repl(&expr, &mut repl_env)
-            }));
-
-            let instrs = match compile_result {
-                Ok(i) => i,
-                Err(_) => {
-                    println!("Invalid: compilation error");
-                    continue;
-                }
-            };
+            let instrs = compile_prog(&prog, &mut repl_env);
 
             if !instrs.is_empty() {
                 let result = jit_code(&instrs);

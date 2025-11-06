@@ -17,7 +17,7 @@ impl Reg {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Op1 {
     Add1,
     Sub1,
@@ -43,7 +43,7 @@ pub use crate::common::{
     get_tag, tag_number, untag_number, format_result, parse_input,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expr {
     // Num(i64),
     Number(i64),
@@ -62,7 +62,7 @@ pub enum Expr {
     Print(Box<Expr>)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Defn {
     pub name: String,
     pub params: Vec<String>,

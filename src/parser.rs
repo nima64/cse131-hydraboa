@@ -220,7 +220,7 @@ pub fn parse_prog(s: &Sexp) -> Prog {
                 defns,
                 main: Box::new(
                     main_expr
-                        .unwrap_or_else(|| panic!("Invalid: program must have a main expression")),
+                        .unwrap_or_else(|| Expr::Boolean(false)),
                 ),
             }
         }

@@ -47,4 +47,105 @@ static_error_tests! {
 
 repl_tests! {
     test_simple_bools: ["(define x true)", "x", "false"] => ["true", "false"],
+
+    // Basic function definition and call
+    test_fun_simple: [
+        "(fun (double x) (+ x x))",
+        "(double 5)"
+    ] => ["10"],
+
+    // Function with multiple arguments
+    test_fun_multi_args: [
+        "(fun (add3 x y z) (+ (+ x y) z))",
+        "(add3 1 2 3)"
+    ] => ["6"],
+
+    // Recursive function
+    test_fun_recursive: [
+        "(fun (fact n) (if (= n 0) 1 (* n (fact (sub1 n)))))",
+        "(fact 5)"
+    ] => ["120"],
+
+    // Multiple functions calling each other
+    test_fun_chain: [
+        "(fun (add2 x) (+ x 2))",
+        "(fun (mul3 x) (* x 3))",
+        "(mul3 (add2 5))"
+    ] => ["21"],
+
+    // Define variable and use it
+    test_define_use: [
+        "(define x 42)",
+        "(+ x 8)"
+    ] => ["50"],
+
+    // Multiple defines
+    test_define_multiple: [
+        "(define a 10)",
+        "(define b 20)",
+        "(+ a b)"
+    ] => ["30"],
+
+    // Set! on defined variable
+    test_set_define: [
+        "(define counter 0)",
+        "counter",
+        "(set! counter 10)",
+        "counter"
+    ] => ["0", "10"],
+
+    // Set! multiple times
+    test_set_multiple: [
+        "(define x 1)",
+        "(set! x 2)",
+        "(set! x (+ x 3))",
+        "x"
+    ] => ["5"],
+
+    // Function using defined variable
+    test_fun_with_define: [
+        "(define base 100)",
+        "(fun (add_base x) (+ x base))",
+        "(add_base 23)"
+    ] => ["123"],
+
+    // Function and set! on defined variable
+    test_fun_set_define: [
+        "(define total 0)",
+        "(fun (add_to_total x) (set! total (+ total x)))",
+        "(add_to_total 5)",
+        "total",
+        "(add_to_total 10)",
+        "total"
+    ] => ["5", "5", "15", "15"],
+
+    // Complex: function using and modifying defined variables
+    test_fun_modify_globals: [
+        "(define x 10)",
+        "(define y 20)",
+        "(fun (swap) (let ((temp x)) (block (set! x y) (set! y temp) x)))",
+        "(swap)",
+        "x",
+        "y"
+    ] => ["20", "20", "10"],
+
+    // Print in REPL
+    test_print_repl: [
+        "(fun (test_print x) (block (print x) (+ x 1)))",
+        "(test_print 5)"
+    ] => ["5\n6"],
+
+    // Loop with defined variable
+    test_loop_with_define: [
+        "(define result 1)",
+        "(loop (if (> result 10) (break result) (set! result (* result 2))))"
+    ] => ["16"],
+
+    // Function calling another function with defines
+    test_nested_fun_define: [
+        "(define multiplier 3)",
+        "(fun (triple x) (* x multiplier))",
+        "(fun (triple_and_add y) (+ (triple y) 10))",
+        "(triple_and_add 4)"
+    ] => ["22"],
 }
