@@ -1,16 +1,41 @@
+use std::collections::HashMap;
 use sexp::Atom::*;
 use sexp::*;
-
+use crate::common::*;
 use crate::types::*;
+
+//scrape and look for immediates in define_env and promote to heapcell on let
+pub fn promote_immediate_heapcell(s: &Sexp, define_env: &mut HashMap<String, DefineVal>) {
+    match s {
+        Sexp::List(vec) => {
+            match &vec[..] {
+                [Sexp::Atom(S(op)), Sexp::Atom(S(name)), e] if op == "set!" => {
+                    if define_env.contains_key(name) {
+                        // Check if it's a Known value that needs promotion
+                        if let Some(DefineVal::Known(val)) = define_env.get(name) {
+                            let val_copy = *val;                      // Copy the i64 value
+                            let boxed = Box::new(val_copy);           // Heap allocate
+                            let ptr = Box::into_raw(boxed) as i64;    // Raw pointer as i64
+
+                            define_env.insert(name.clone(), DefineVal::Cell(ptr));
+                        }
+                    }
+                }
+                _ => panic!("parse error!"),
+            }
+        }
+        _ => {}
+    }
+}
 
 pub fn parse_expr(s: &Sexp) -> Expr {
     match s {
         Sexp::Atom(I(n)) => {
-            if !(*n >= -2_i64.pow(62) && *n <= 2_i64.pow(62)-1){
+            if !(*n >= -2_i64.pow(62) && *n <= 2_i64.pow(62) - 1) {
                 panic!("not a valid number must be an integer between -2^62 and 2^62-1");
             }
             Expr::Number(tag_number(*n))
-        },
+        }
         Sexp::Atom(S(name)) => {
             /* Check is boolean */
             if (name == "true") {
@@ -157,7 +182,7 @@ pub fn parse_defn(s: &Sexp) -> Defn {
 pub fn parse_prog(s: &Sexp) -> Prog {
     match s {
         Sexp::List(items) => {
-            let mut defns:Vec<Defn> = Vec::new();
+            let mut defns: Vec<Defn> = Vec::new();
             let mut main_expr = None;
 
             for item in items {
