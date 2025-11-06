@@ -403,7 +403,7 @@ pub fn compile_expr_define_env(
             // Check argument count matches
             if args.len() != defn.params.len() {
                 panic!(
-                    "Duplicate arguments: Function {} expects {} arguments, got {}",
+                    "Function {} expects {} arguments, got {}",
                     name,
                     defn.params.len(),
                     args.len()
@@ -413,6 +413,7 @@ pub fn compile_expr_define_env(
             let mut instrs = Vec::new();
 
             for arg in args {
+
                 instrs.extend(compile_expr_define_env(
                     arg, stack_depth, env,
                     define_env, defns, ctx,

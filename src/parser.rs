@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
+
+use im::HashMap;
 use sexp::Atom::*;
 use sexp::*;
 use crate::common::*;
@@ -140,6 +142,13 @@ pub fn parse_defn(s: &Sexp) -> Defn {
                                 _ => panic!("Invalid: function parameter must be an identifier"),
                             })
                             .collect();
+                        let mut seen = HashSet::new();
+                        
+                        for p in &param_names {
+                            if !seen.insert(p) {
+                                panic!("Duplicate Argument");
+                            }
+                        }
 
                         Defn {
                             name: name.to_string(),
